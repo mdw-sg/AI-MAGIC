@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local sommerhus-dashboard data (personal, machine-specific)
+/data/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
