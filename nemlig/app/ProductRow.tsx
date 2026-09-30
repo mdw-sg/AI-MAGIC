@@ -1,5 +1,5 @@
 import Image from "next/image";
-import type { ProductStats } from "@/lib/nemlig/analysis";
+import type { ProductStats } from "@/lib/analysis";
 
 const currency = new Intl.NumberFormat("da-DK", { style: "currency", currency: "DKK" });
 

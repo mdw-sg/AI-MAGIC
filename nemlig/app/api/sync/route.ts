@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { NotLoggedInError } from "@/lib/nemlig/client";
-import { syncOrders } from "@/lib/nemlig/orders";
+import { NotLoggedInError } from "@/lib/client";
+import { syncOrders } from "@/lib/orders";
 
 export async function POST() {
   try {

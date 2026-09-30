@@ -9,11 +9,6 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "*.mindworking.eu",
       },
-      // Produktbilleder på /nemlig.
-      {
-        protocol: "https",
-        hostname: "www.nemlig.com",
-      },
     ],
   },
 };

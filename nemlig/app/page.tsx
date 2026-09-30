@@ -1,6 +1,6 @@
-import { analyzeOrders, type ProductStats } from "@/lib/nemlig/analysis";
-import { getOrderCache } from "@/lib/nemlig/orders";
-import { getSession } from "@/lib/nemlig/session";
+import { analyzeOrders, type ProductStats } from "@/lib/analysis";
+import { getOrderCache } from "@/lib/orders";
+import { getSession } from "@/lib/session";
 import ActionButton from "./ActionButton";
 import ProductRow from "./ProductRow";
 
@@ -65,13 +65,13 @@ export default function NemligPage() {
             {session ? (
               <>
                 <ActionButton
-                  endpoint="/api/nemlig/sync"
+                  endpoint="/api/sync"
                   label="Hent ordrehistorik"
                   loadingLabel="Henter…"
                   hint="Første gang hentes op til 40 ordrer — det tager lidt tid."
                 />
                 <ActionButton
-                  endpoint="/api/nemlig/logout"
+                  endpoint="/api/logout"
                   label="Log ud"
                   loadingLabel="Logger ud…"
                   variant="secondary"
@@ -79,7 +79,7 @@ export default function NemligPage() {
               </>
             ) : (
               <ActionButton
-                endpoint="/api/nemlig/login"
+                endpoint="/api/login"
                 label="Log ind på nemlig.com"
                 loadingLabel="Venter på login…"
                 hint="Et Chrome-vindue åbner. Log ind som normalt — vinduet lukker selv bagefter."

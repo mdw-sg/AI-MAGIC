@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loginWithBrowser } from "@/lib/nemlig/session";
+import { loginWithBrowser } from "@/lib/session";
 
 export async function POST() {
   try {
