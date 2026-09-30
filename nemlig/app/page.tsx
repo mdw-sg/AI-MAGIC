@@ -102,9 +102,15 @@ export default function NemligPage() {
                 ` · du bestiller ca. hver ${Math.round(analysis.avgOrderIntervalDays)}. dag`}
               . Antal er dit typiske antal pr. ordre.
             </p>
+            {analysis.missingPinned.length > 0 && (
+              <p className="text-sm text-amber-700 dark:text-amber-400">
+                Faste standardvarer, der ikke findes i din ordrehistorik:{" "}
+                {analysis.missingPinned.join(", ")}.
+              </p>
+            )}
             <Section
               title="Standardvarer"
-              subtitle="Med i mindst halvdelen af dine seneste ordrer."
+              subtitle="Dine faste varer plus alt, der er med i mindst halvdelen af dine seneste ordrer. Øko-udgaven vælges, når du har købt den før."
               products={analysis.standard}
               windowSize={analysis.windowSize}
             />
@@ -114,6 +120,16 @@ export default function NemligPage() {
               products={analysis.dueSoon}
               windowSize={analysis.windowSize}
             />
+            <details className="rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-[#111]">
+              <summary className="cursor-pointer text-sm font-medium text-black dark:text-zinc-50">
+                Slik og kiosk — kun når det er på tilbud ({analysis.onlyOnOffer.length})
+              </summary>
+              <ul className="mt-2 divide-y divide-black/[.06] dark:divide-white/[.08]">
+                {analysis.onlyOnOffer.map((p) => (
+                  <ProductRow key={p.productId} product={p} windowSize={analysis.windowSize} />
+                ))}
+              </ul>
+            </details>
             <details className="rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-[#111]">
               <summary className="cursor-pointer text-sm font-medium text-black dark:text-zinc-50">
                 Øvrige varer du har købt ({analysis.other.length})

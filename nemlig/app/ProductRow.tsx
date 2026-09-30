@@ -36,6 +36,23 @@ export default function ProductRow({
         <p className="truncate text-xs text-zinc-600 dark:text-zinc-400">
           {product.description} · {currency.format(product.lastUnitPrice)}
         </p>
+        {(product.pinnedLabel || !product.isOrganic) && (
+          <div className="mt-1 flex gap-1">
+            {product.pinnedLabel && (
+              <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+                Fast standardvare
+              </span>
+            )}
+            {!product.isOrganic && (
+              <span
+                className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                title="Du har ikke købt en økologisk udgave af denne vare før"
+              >
+                Ikke øko
+              </span>
+            )}
+          </div>
+        )}
       </div>
       <div className="shrink-0 text-right text-xs text-zinc-600 dark:text-zinc-400">
         <p>

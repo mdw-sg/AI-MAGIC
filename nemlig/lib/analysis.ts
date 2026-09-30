@@ -1,4 +1,5 @@
-import type { Order } from "./types";
+import { isOnlyWhenOnOffer, isOrganic, PINNED_STAPLES, productKey } from "./preferences";
+import type { Order, OrderLine } from "./types";
 
 // Standardvarer vurderes ud fra de seneste ordrer, så gamle vaner, man er
 // holdt op med, ikke bliver ved med at dukke op.
@@ -15,6 +16,7 @@ const DUE_UNTIL = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type ProductStats = {
+  /** Varenummeret, der foreslås — øko-varianten, hvis den findes i historikken. */
   productId: string;
   name: string;
   description: string;
@@ -22,6 +24,9 @@ export type ProductStats = {
   productUrl: string | null;
   mainGroup: string;
   lastUnitPrice: number;
+  isOrganic: boolean;
+  /** Sat, når varen er en fast standardvare valgt af brugeren. */
+  pinnedLabel: string | null;
   /** Antal af de seneste ordrer (vinduet), varen var med i. */
   countInWindow: number;
   shareInWindow: number;
@@ -39,7 +44,21 @@ export type Analysis = {
   avgOrderIntervalDays: number | null;
   standard: ProductStats[];
   dueSoon: ProductStats[];
+  /** Slik m.m., som kun foreslås, når det er på tilbud. */
+  onlyOnOffer: ProductStats[];
   other: ProductStats[];
+  /** Faste standardvarer, der ikke findes i ordrehistorikken. */
+  missingPinned: string[];
+};
+
+type Variant = { line: OrderLine; count: number; lastTime: number };
+
+type Group = {
+  variants: Map<string, Variant>;
+  times: number[];
+  windowQuantities: number[];
+  allQuantities: number[];
+  countInWindow: number;
 };
 
 function purchaseTime(order: Order): number {
@@ -58,6 +77,16 @@ function meanInterval(times: number[]): number | null {
   return (sorted[sorted.length - 1] - sorted[0]) / (sorted.length - 1) / DAY_MS;
 }
 
+/** Øko først, derefter den oftest købte, derefter den senest købte. */
+function pickVariant(variants: Iterable<Variant>): Variant {
+  return [...variants].sort(
+    (a, b) =>
+      Number(isOrganic(b.line.name)) - Number(isOrganic(a.line.name)) ||
+      b.count - a.count ||
+      b.lastTime - a.lastTime
+  )[0];
+}
+
 export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
   const withLines = orders
     .filter((o) => o.lines.length > 0)
@@ -65,69 +94,102 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
   const windowIds = new Set(withLines.slice(0, WINDOW_ORDERS).map((o) => o.id));
   const windowSize = windowIds.size;
 
-  const byProduct = new Map<
-    string,
-    { stats: ProductStats; quantities: number[]; times: number[] }
-  >();
-
-  // Nyeste ordre først, så navn, billede og pris kommer fra seneste køb.
+  const groups = new Map<string, Group>();
   for (const order of withLines) {
     const time = purchaseTime(order);
     const inWindow = windowIds.has(order.id);
-    // En vare kan stå på flere linjer i samme ordre; læg dem sammen.
-    const perOrder = new Map<string, number>();
-    for (const line of order.lines) {
-      perOrder.set(line.productId, (perOrder.get(line.productId) ?? 0) + line.quantity);
-    }
-    for (const line of order.lines) {
-      if (!perOrder.has(line.productId)) continue;
-      const quantity = perOrder.get(line.productId)!;
-      perOrder.delete(line.productId);
 
-      let entry = byProduct.get(line.productId);
-      if (!entry) {
-        entry = {
-          stats: {
-            productId: line.productId,
-            name: line.name,
-            description: line.description,
-            imageUrl: line.imageUrl,
-            productUrl: line.productUrl,
-            mainGroup: line.mainGroup,
-            lastUnitPrice: line.unitPrice,
-            countInWindow: 0,
-            shareInWindow: 0,
-            totalCount: 0,
-            typicalQuantity: 0,
-            lastPurchased: new Date(time).toISOString(),
-            daysSinceLast: Math.max(0, Math.round((now - time) / DAY_MS)),
-            avgIntervalDays: null,
-          },
-          quantities: [],
-          times: [],
-        };
-        byProduct.set(line.productId, entry);
+    // Saml linjer pr. vare i ordren — både gentagne linjer og varianter
+    // (fx øko og ikke-øko) af samme vare.
+    const perOrder = new Map<string, { quantity: number; lines: OrderLine[] }>();
+    for (const line of order.lines) {
+      const key = productKey(line.name);
+      const entry = perOrder.get(key) ?? { quantity: 0, lines: [] };
+      entry.quantity += line.quantity;
+      entry.lines.push(line);
+      perOrder.set(key, entry);
+    }
+
+    for (const [key, { quantity, lines }] of perOrder) {
+      let group = groups.get(key);
+      if (!group) {
+        group = { variants: new Map(), times: [], windowQuantities: [], allQuantities: [], countInWindow: 0 };
+        groups.set(key, group);
       }
-      entry.stats.totalCount += 1;
-      entry.times.push(time);
+      group.times.push(time);
+      group.allQuantities.push(quantity);
       if (inWindow) {
-        entry.stats.countInWindow += 1;
-        entry.quantities.push(quantity);
+        group.countInWindow += 1;
+        group.windowQuantities.push(quantity);
+      }
+      for (const line of lines) {
+        const variant = group.variants.get(line.productId);
+        if (variant) {
+          variant.count += 1;
+        } else {
+          // Ordrerne gennemgås nyeste først, så første forekomst er den seneste.
+          group.variants.set(line.productId, { line, count: 1, lastTime: time });
+        }
       }
     }
   }
 
+  const all: ProductStats[] = [];
+  for (const group of groups.values()) {
+    const { line } = pickVariant(group.variants.values());
+    const lastTime = Math.max(...group.times);
+    all.push({
+      productId: line.productId,
+      name: line.name,
+      description: line.description,
+      imageUrl: line.imageUrl,
+      productUrl: line.productUrl,
+      mainGroup: line.mainGroup,
+      lastUnitPrice: line.unitPrice,
+      isOrganic: isOrganic(line.name),
+      pinnedLabel: null,
+      countInWindow: group.countInWindow,
+      shareInWindow: windowSize ? group.countInWindow / windowSize : 0,
+      totalCount: group.times.length,
+      typicalQuantity: Math.max(
+        1,
+        Math.round(median(group.windowQuantities.length ? group.windowQuantities : group.allQuantities))
+      ),
+      lastPurchased: new Date(lastTime).toISOString(),
+      daysSinceLast: Math.max(0, Math.round((now - lastTime) / DAY_MS)),
+      avgIntervalDays: meanInterval(group.times),
+    });
+  }
+
+  // Faste standardvarer: vælg den bedste match for hver (øko, oftest købt
+  // for nylig, oftest købt i alt).
+  const missingPinned: string[] = [];
+  for (const staple of PINNED_STAPLES) {
+    const best = all
+      .filter((p) => staple.match.test(p.name) && !isOnlyWhenOnOffer(p))
+      .sort(
+        (a, b) =>
+          Number(b.isOrganic) - Number(a.isOrganic) ||
+          b.countInWindow - a.countInWindow ||
+          b.totalCount - a.totalCount
+      )[0];
+    if (best) best.pinnedLabel ??= staple.label;
+    else missingPinned.push(staple.label);
+  }
+
   const standard: ProductStats[] = [];
   const dueSoon: ProductStats[] = [];
+  const onlyOnOffer: ProductStats[] = [];
   const other: ProductStats[] = [];
   const minCount = Math.min(STANDARD_MIN_COUNT, Math.max(2, Math.ceil(windowSize / 2)));
 
-  for (const { stats, quantities, times } of byProduct.values()) {
-    stats.shareInWindow = windowSize ? stats.countInWindow / windowSize : 0;
-    stats.typicalQuantity = Math.max(1, Math.round(median(quantities.length ? quantities : [1])));
-    stats.avgIntervalDays = meanInterval(times);
-
-    if (stats.shareInWindow >= STANDARD_SHARE && stats.countInWindow >= minCount) {
+  for (const stats of all) {
+    if (isOnlyWhenOnOffer(stats)) {
+      onlyOnOffer.push(stats);
+    } else if (
+      stats.pinnedLabel ||
+      (stats.shareInWindow >= STANDARD_SHARE && stats.countInWindow >= minCount)
+    ) {
       standard.push(stats);
     } else if (
       stats.avgIntervalDays !== null &&
@@ -145,7 +207,10 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
     (a, b) =>
       b.daysSinceLast / (b.avgIntervalDays ?? 1) - a.daysSinceLast / (a.avgIntervalDays ?? 1)
   );
-  other.sort((a, b) => b.totalCount - a.totalCount || a.name.localeCompare(b.name, "da"));
+  const byCount = (a: ProductStats, b: ProductStats) =>
+    b.totalCount - a.totalCount || a.name.localeCompare(b.name, "da");
+  onlyOnOffer.sort(byCount);
+  other.sort(byCount);
 
   return {
     orderCount: withLines.length,
@@ -153,6 +218,8 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
     avgOrderIntervalDays: meanInterval(withLines.map(purchaseTime)),
     standard,
     dueSoon,
+    onlyOnOffer,
     other,
+    missingPinned,
   };
 }
