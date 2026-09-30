@@ -205,8 +205,23 @@ export async function addItemsToBasket(items: BasketRequestItem[]): Promise<Bask
         DisableQuantityValidation: false,
       });
       await sleep(DELAY_BETWEEN_REQUESTS_MS);
-      const now = basketQuantities(updated).get(product.Id) ?? item.quantity;
+      const now = basketQuantities(updated).get(product.Id) ?? 0;
       inBasket.set(product.Id, now);
+      if (now < item.quantity) {
+        // Nemlig kan afvise eller skære ned uden fejlkode, fx når varen er
+        // udsolgt til det valgte leveringstidspunkt.
+        results.push({
+          requestedName: item.name,
+          status: now > 0 ? "added" : "unavailable",
+          note:
+            now > 0
+              ? `Nemlig gav kun ${now} af ${item.quantity}`
+              : "Nemlig afviste varen — sandsynligvis udsolgt til dit leveringstidspunkt",
+          chosen,
+          quantity: now,
+        });
+        continue;
+      }
       results.push({ requestedName: item.name, status: "added", note, chosen, quantity: now });
     } catch (error) {
       results.push({
