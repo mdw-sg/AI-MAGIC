@@ -35,8 +35,18 @@ export default function ProductRow({
         <p className="truncate text-xs text-zinc-600 dark:text-zinc-400">
           {product.description} · {currency.format(product.lastUnitPrice)}
         </p>
-        {(product.pinnedLabel || showOrigin) && (
-          <div className="mt-1 flex gap-1">
+        {(product.pinnedLabel || showOrigin || product.offer) && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {product.offer && (
+              <span
+                className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-medium text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                title={`${product.offer.name} · ${product.offer.description}`}
+              >
+                Tilbud: {product.offer.campaignText ?? currency.format(product.offer.price)}
+                {product.offer.savings ? ` · spar ${currency.format(product.offer.savings)}` : ""}
+                {product.offer.name !== product.name && ` (${product.offer.name})`}
+              </span>
+            )}
             {product.pinnedLabel && (
               <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-950 dark:text-sky-300">
                 Fast standardvare

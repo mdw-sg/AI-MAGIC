@@ -12,6 +12,8 @@ export type BasketRequestItem = {
   name: string;
   mainGroup: string;
   quantity: number;
+  /** Tilbudsvaren, der foretrækkes, hvis den er på lager. */
+  preferredProductId?: string | null;
 };
 
 export type BasketItemResult = {
@@ -121,11 +123,15 @@ async function resolveProduct(
   );
   const key = productKey(item.name);
   const candidates = (result.Products?.Products ?? []).filter(
-    (p) => p.Id === item.productId || productKey(p.Name) === key
+    (p) =>
+      p.Id === item.productId || p.Id === item.preferredProductId || productKey(p.Name) === key
   );
   if (candidates.length === 0) return { product: null, note: null, status: "notFound" };
 
   const available = candidates.filter(inStock);
+  // Tilbudsvaren er allerede tjekket mod øko-reglen, da tilbuddet blev fundet.
+  const preferred = available.find((p) => p.Id === item.preferredProductId);
+  if (preferred) return { product: preferred, note: "Tilbudsvaren", status: "added" };
   // Samme varenummer som sidst foretrækkes, når alt andet er lige.
   const rank = (a: RawProduct, b: RawProduct) =>
     Number(b.Id === item.productId) - Number(a.Id === item.productId);

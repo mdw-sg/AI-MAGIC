@@ -6,6 +6,7 @@ import {
   PINNED_STAPLES,
   productKey,
 } from "./preferences";
+import type { Offer } from "./offers";
 import type { Order, OrderLine } from "./types";
 
 // Standardvarer vurderes ud fra de seneste ordrer, så gamle vaner, man er
@@ -37,6 +38,8 @@ export type ProductStats = {
   lastUnitPrice: number;
   isOrganic: boolean;
   isDanish: boolean;
+  /** Ugens tilbud på denne vare (eller en variant af den), hvis der er et. */
+  offer: Offer | null;
   /** Sat, når varen er en fast standardvare valgt af brugeren. */
   pinnedLabel: string | null;
   /** Antal af de seneste ordrer (vinduet), varen var med i. */
@@ -56,6 +59,9 @@ export type Analysis = {
   avgOrderIntervalDays: number | null;
   standard: ProductStats[];
   dueSoon: ProductStats[];
+  /** Varer fra historikken, der er på tilbud nu — også slik. */
+  onOffer: ProductStats[];
+  offersFetchedAt: string | null;
   /** Husholdnings- og plejevarer, der er standard eller snart skal købes igen. */
   household: ProductStats[];
   /** Slik m.m., som kun foreslås, når det er på tilbud. */
@@ -102,7 +108,46 @@ function pickVariant(variants: Iterable<Variant>): Variant {
   )[0];
 }
 
-export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
+/**
+ * Finder ugens bedste tilbud på en vare. Brugerens øko-regel gælder også her:
+ * køber man varen økologisk, foreslås kun et tilbud på en øko-udgave.
+ */
+function findOffer(
+  stats: ProductStats,
+  variantIds: Iterable<string>,
+  offersById: Map<string, Offer>,
+  offersByKey: Map<string, Offer[]>
+): Offer | null {
+  const candidates = new Map<string, Offer>();
+  for (const id of variantIds) {
+    const offer = offersById.get(id);
+    if (offer) candidates.set(offer.productId, offer);
+  }
+  for (const offer of offersByKey.get(productKey(stats.name)) ?? []) {
+    candidates.set(offer.productId, offer);
+  }
+  return (
+    [...candidates.values()]
+      .filter((o) => !o.soldOut && (o.isOrganic || !stats.isOrganic || isHousehold(stats)))
+      .sort(
+        (a, b) => Number(b.isOrganic) - Number(a.isOrganic) || (b.savings ?? 0) - (a.savings ?? 0)
+      )[0] ?? null
+  );
+}
+
+export function analyzeOrders(
+  orders: Order[],
+  offerCache: { fetchedAt: string; offers: Offer[] } | null = null,
+  now = Date.now()
+): Analysis {
+  const offers = offerCache?.offers ?? [];
+  const offersById = new Map(offers.map((o) => [o.productId, o]));
+  const offersByKey = new Map<string, Offer[]>();
+  for (const offer of offers) {
+    const key = productKey(offer.name);
+    offersByKey.set(key, [...(offersByKey.get(key) ?? []), offer]);
+  }
+
   const withLines = orders
     .filter((o) => o.lines.length > 0)
     .sort((a, b) => purchaseTime(b) - purchaseTime(a));
@@ -164,7 +209,7 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
   for (const group of groups.values()) {
     const { line } = pickVariant(group.variants.values());
     const lastTime = Math.max(...group.times);
-    all.push({
+    const stats: ProductStats = {
       productId: line.productId,
       name: line.name,
       description: line.description,
@@ -174,6 +219,7 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
       lastUnitPrice: line.unitPrice,
       isOrganic: isOrganic(line.name),
       isDanish: isDanish(line),
+      offer: null,
       pinnedLabel: null,
       countInWindow: group.countInWindow,
       shareInWindow: windowSize ? group.countInWindow / windowSize : 0,
@@ -185,7 +231,9 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
       lastPurchased: new Date(lastTime).toISOString(),
       daysSinceLast: Math.max(0, Math.round((now - lastTime) / DAY_MS)),
       avgIntervalDays: meanInterval(group.times),
-    });
+    };
+    stats.offer = findOffer(stats, group.variants.keys(), offersById, offersByKey);
+    all.push(stats);
   }
 
   // Faste standardvarer: vælg den bedste match for hver (øko, oftest købt
@@ -240,6 +288,9 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
     (a, b) =>
       b.daysSinceLast / (b.avgIntervalDays ?? 1) - a.daysSinceLast / (a.avgIntervalDays ?? 1)
   );
+  const onOffer = all
+    .filter((p) => p.offer)
+    .sort((a, b) => b.totalCount - a.totalCount || a.name.localeCompare(b.name, "da"));
   household.sort(
     (a, b) =>
       b.daysSinceLast / (b.avgIntervalDays ?? 1) - a.daysSinceLast / (a.avgIntervalDays ?? 1)
@@ -255,6 +306,8 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
     avgOrderIntervalDays: meanInterval(withLines.map(purchaseTime)),
     standard,
     dueSoon,
+    onOffer,
+    offersFetchedAt: offerCache?.fetchedAt ?? null,
     household,
     onlyOnOffer,
     other,

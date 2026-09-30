@@ -12,13 +12,25 @@ type Method = "GET" | "POST";
 // herunder checkout, betaling, gemte kort og kontooplysninger — afvises her,
 // før der overhovedet sendes en forespørgsel. Nye endpoints skal tilføjes
 // eksplicit og bevidst.
-const ALLOWED_ENDPOINTS: { method: Method; origin: string; path: RegExp }[] = [
+const ALLOWED_ENDPOINTS: {
+  method: Method;
+  origin: string;
+  path: RegExp;
+  query?: (params: URLSearchParams) => boolean;
+}[] = [
   { method: "GET", origin: WEB, path: /^\/webapi\/Token$/ },
   { method: "GET", origin: WEB, path: /^\/webapi\/order\/GetBasicOrderHistory$/ },
   { method: "GET", origin: WEB, path: /^\/webapi\/v2\/order\/GetOrderHistory\/\d+$/ },
   { method: "GET", origin: WEB, path: /^\/webapi\/basket\/GetBasket$/ },
   { method: "POST", origin: WEB, path: /^\/webapi\/basket\/AddToBasket$/ },
   { method: "GET", origin: SEARCH, path: /^\/searchgateway\/api\/search$/ },
+  // Kun tilbudssiden — ikke vilkårlige sider fra nemlig's side-API.
+  {
+    method: "GET",
+    origin: SEARCH,
+    path: /^\/productbff\/api\/web\/page$/,
+    query: (params) => params.get("path") === "/tilbud",
+  },
 ];
 
 export class NotLoggedInError extends Error {
@@ -30,7 +42,11 @@ export class NotLoggedInError extends Error {
 
 function assertAllowed(method: Method, url: URL) {
   const allowed = ALLOWED_ENDPOINTS.some(
-    (e) => e.method === method && e.origin === url.origin && e.path.test(url.pathname)
+    (e) =>
+      e.method === method &&
+      e.origin === url.origin &&
+      e.path.test(url.pathname) &&
+      (!e.query || e.query(url.searchParams))
   );
   if (!allowed) {
     throw new Error(

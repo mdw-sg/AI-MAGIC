@@ -1,4 +1,5 @@
 import { analyzeOrders } from "@/lib/analysis";
+import { getOfferCache } from "@/lib/offers";
 import { getOrderCache } from "@/lib/orders";
 import { getSession } from "@/lib/session";
 import ActionButton from "./ActionButton";
@@ -11,7 +12,8 @@ export const dynamic = "force-dynamic";
 export default function NemligPage() {
   const session = getSession();
   const cache = getOrderCache();
-  const analysis = cache ? analyzeOrders(cache.orders) : null;
+  const offers = getOfferCache();
+  const analysis = cache ? analyzeOrders(cache.orders, offers) : null;
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 font-sans dark:bg-black">
@@ -27,6 +29,7 @@ export default function NemligPage() {
                 : "Ikke logget ind"}
               {cache &&
                 ` · ${cache.orders.length} ordrer hentet ${new Date(cache.syncedAt).toLocaleString("da-DK")}`}
+              {offers && ` · ${offers.offers.length} tilbud`}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -34,9 +37,9 @@ export default function NemligPage() {
               <>
                 <ActionButton
                   endpoint="/api/sync"
-                  label="Hent ordrehistorik"
+                  label="Opdater ordrer og tilbud"
                   loadingLabel="Henter…"
-                  hint="Første gang hentes op til 40 ordrer — det tager lidt tid."
+                  hint="Henter nye ordrer og ugens tilbud. Første gang hentes op til 40 ordrer — det tager lidt tid."
                 />
                 <ActionButton
                   endpoint="/api/logout"
@@ -59,7 +62,7 @@ export default function NemligPage() {
         {!analysis ? (
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             {session
-              ? 'Klik "Hent ordrehistorik" for at analysere dine tidligere ordrer.'
+              ? 'Klik "Opdater ordrer og tilbud" for at analysere dine tidligere ordrer.'
               : "Log ind for at komme i gang. Værktøjet ser aldrig din adgangskode — du indtaster den direkte på nemlig.com."}
           </p>
         ) : (
@@ -68,7 +71,7 @@ export default function NemligPage() {
               Analyseret ud fra dine seneste {analysis.windowSize} af {analysis.orderCount} ordrer
               {analysis.avgOrderIntervalDays !== null &&
                 ` · du bestiller ca. hver ${Math.round(analysis.avgOrderIntervalDays)}. dag`}
-              . Antal er dit typiske antal pr. ordre — ret det og sæt flueben, før du lægger i kurven. Værktøjet vælger øko på lager, ellers dansk, og fjerner aldrig noget fra kurven.
+              . Ret antal og sæt flueben på tværs af fanerne — knappen nederst samler det hele. Værktøjet vælger tilbudsvaren, hvis der er en, ellers øko på lager, ellers dansk, og fjerner aldrig noget fra kurven.
             </p>
             {analysis.missingPinned.length > 0 && (
               <p className="text-sm text-amber-700 dark:text-amber-400">
