@@ -1,7 +1,10 @@
 import { getAllListings, getLatestRefreshRuns } from "@/lib/sommerhuse/db";
 import { matchListing } from "@/lib/sommerhuse/criteria";
+import { parseSortKey, sortItems, type SortKey } from "@/lib/sommerhuse/sort";
 import RefreshButton from "./RefreshButton";
 import ListingCard from "./ListingCard";
+import SortSelect from "./SortSelect";
+import MapViewLoader from "./MapViewLoader";
 
 // DB-indholdet ændrer sig uden for Next.js' egen fetch-cache (via
 // "Opdater nu"-knappen), så siden skal læses fra databasen ved hvert kald
@@ -15,6 +18,16 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 const DEFAULT_MAX_PRICE = 4_000_000;
+
+type View = "list" | "map";
+
+function buildUrl(maxPrice: number | null, sort: SortKey, view: View): string {
+  const params = new URLSearchParams();
+  params.set("maxPrice", maxPrice != null ? String(maxPrice) : "");
+  params.set("sort", sort);
+  params.set("view", view);
+  return `/sommerhuse?${params.toString()}`;
+}
 
 export default async function SommerhusePage(props: PageProps<"/sommerhuse">) {
   const searchParams = await props.searchParams;
@@ -34,20 +47,30 @@ export default async function SommerhusePage(props: PageProps<"/sommerhuse">) {
     maxPrice = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }
 
+  const sortParam = Array.isArray(searchParams.sort) ? searchParams.sort[0] : searchParams.sort;
+  const sort = parseSortKey(sortParam);
+
+  const viewParam = Array.isArray(searchParams.view) ? searchParams.view[0] : searchParams.view;
+  const view: View = viewParam === "map" ? "map" : "list";
+
   const listings = getAllListings();
   const runs = getLatestRefreshRuns();
 
-  const withMatch = listings
-    .map((listing) => ({ listing, match: matchListing(listing) }))
-    .sort((a, b) => b.match.score - a.match.score);
+  const withMatch = listings.map((listing) => ({ listing, match: matchListing(listing) }));
 
   // Prisfilteret gælder kun "Alle forslag" — en favoritmarkeret bolig skal
   // blive ved med at være synlig, selvom prisen senere stiger over filteret.
-  const favorites = withMatch.filter((x) => x.listing.favoritedAt);
-  const others = withMatch.filter(
-    (x) =>
-      !x.listing.favoritedAt &&
-      (maxPrice == null || x.listing.price == null || x.listing.price <= maxPrice)
+  const favorites = sortItems(
+    withMatch.filter((x) => x.listing.favoritedAt),
+    sort
+  );
+  const others = sortItems(
+    withMatch.filter(
+      (x) =>
+        !x.listing.favoritedAt &&
+        (maxPrice == null || x.listing.price == null || x.listing.price <= maxPrice)
+    ),
+    sort
   );
 
   const hasRunBefore = runs.length > 0;
@@ -83,79 +106,115 @@ export default async function SommerhusePage(props: PageProps<"/sommerhuse">) {
           <RefreshButton />
         </div>
 
-        <form className="flex flex-wrap items-end gap-3" action="/sommerhuse">
-          <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-            Maks. pris (kr.)
-            <input
-              type="number"
-              name="maxPrice"
-              step={100_000}
-              min={0}
-              defaultValue={maxPrice ?? ""}
-              placeholder="Ingen grænse"
-              className="h-9 w-40 rounded-md border border-black/[.08] bg-white px-2 text-sm dark:border-white/[.145] dark:bg-[#111]"
-            />
-          </label>
-          <button
-            type="submit"
-            className="flex h-9 items-center justify-center rounded-full border border-black/[.08] px-4 text-sm font-medium transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
-          >
-            Filtrér
-          </button>
-          {maxPrice != null && (
-            <a
-              href="/sommerhuse?maxPrice="
-              className="text-sm text-zinc-500 hover:underline dark:text-zinc-500"
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <form className="flex flex-wrap items-end gap-3" action="/sommerhuse">
+            <input type="hidden" name="view" value={view} />
+            <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+              Maks. pris (kr.)
+              <input
+                type="number"
+                name="maxPrice"
+                step={100_000}
+                min={0}
+                defaultValue={maxPrice ?? ""}
+                placeholder="Ingen grænse"
+                className="h-9 w-40 rounded-md border border-black/[.08] bg-white px-2 text-sm dark:border-white/[.145] dark:bg-[#111]"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+              Sortér efter
+              <SortSelect defaultValue={sort} />
+            </label>
+            <button
+              type="submit"
+              className="flex h-9 items-center justify-center rounded-full border border-black/[.08] px-4 text-sm font-medium transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
             >
-              Fjern prisfilter
+              Filtrér
+            </button>
+            {maxPrice != null && (
+              <a
+                href={buildUrl(null, sort, view)}
+                className="text-sm text-zinc-500 hover:underline dark:text-zinc-500"
+              >
+                Fjern prisfilter
+              </a>
+            )}
+          </form>
+
+          <div className="flex gap-1 rounded-full border border-black/[.08] p-1 dark:border-white/[.145]">
+            <a
+              href={buildUrl(maxPrice, sort, "list")}
+              className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                view === "list"
+                  ? "bg-foreground text-background"
+                  : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-[#1a1a1a]"
+              }`}
+            >
+              Oversigt
             </a>
-          )}
-        </form>
+            <a
+              href={buildUrl(maxPrice, sort, "map")}
+              className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                view === "map"
+                  ? "bg-foreground text-background"
+                  : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-[#1a1a1a]"
+              }`}
+            >
+              Kort
+            </a>
+          </div>
+        </div>
 
-        {favorites.length > 0 && (
-          <section className="flex flex-col gap-3">
-            <h2 className="text-lg font-semibold text-black dark:text-zinc-50">
-              Favoritter ({favorites.length})
-            </h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {favorites.map(({ listing, match }, index) => (
-                <ListingCard
-                  key={listing.id}
-                  listing={listing}
-                  match={match}
-                  eager={index < 3}
-                />
-              ))}
-            </div>
-          </section>
+        {view === "map" ? (
+          <MapViewLoader items={[...favorites, ...others]} />
+        ) : (
+          <>
+            {favorites.length > 0 && (
+              <section className="flex flex-col gap-3">
+                <h2 className="text-lg font-semibold text-black dark:text-zinc-50">
+                  Favoritter ({favorites.length})
+                </h2>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {favorites.map(({ listing, match }, index) => (
+                    <ListingCard
+                      key={listing.id}
+                      listing={listing}
+                      match={match}
+                      eager={index < 3}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <section className="flex flex-col gap-3">
+              <h2 className="text-lg font-semibold text-black dark:text-zinc-50">
+                Alle forslag ({others.length})
+              </h2>
+              {others.length === 0 && listings.length === 0 ? (
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Ingen boliger endnu — klik &quot;Opdater nu&quot; for at hente den første
+                  omgang data.
+                </p>
+              ) : others.length === 0 ? (
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Ingen boliger matcher det nuværende prisfilter.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {others.map(({ listing, match }, index) => (
+                    <ListingCard
+                      key={listing.id}
+                      listing={listing}
+                      match={match}
+                      eager={favorites.length === 0 && index < 3}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
         )}
-
-        <section className="flex flex-col gap-3">
-          <h2 className="text-lg font-semibold text-black dark:text-zinc-50">
-            Alle forslag ({others.length})
-          </h2>
-          {others.length === 0 && listings.length === 0 ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              Ingen boliger endnu — klik &quot;Opdater nu&quot; for at hente den første
-              omgang data.
-            </p>
-          ) : others.length === 0 ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              Ingen boliger matcher det nuværende prisfilter.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {others.map(({ listing, match }, index) => (
-                <ListingCard
-                  key={listing.id}
-                  listing={listing}
-                  match={match}
-                  eager={favorites.length === 0 && index < 3}
-                />
-              ))}
-            </div>
-          )}
-        </section>
       </main>
     </div>
   );
