@@ -2,6 +2,8 @@ import { getKnownUrls, markMissingAsInactive, recordRefreshRun, upsertListing } 
 import { discoverHomeUrls, fetchHomeListings } from "./sources/home";
 import { discoverNyboligUrls, fetchNyboligListings } from "./sources/nybolig";
 import { discoverDanboligUrls, fetchDanboligListings } from "./sources/danbolig";
+import { discoverEdcUrls, fetchEdcListings } from "./sources/edc";
+import { discoverEstateUrls, fetchEstateListings } from "./sources/estate";
 import type { ScrapedListing, Source } from "./types";
 
 type SourceConfig = {
@@ -14,6 +16,8 @@ const SOURCES: SourceConfig[] = [
   { source: "home", discover: discoverHomeUrls, fetchMany: fetchHomeListings },
   { source: "nybolig", discover: discoverNyboligUrls, fetchMany: fetchNyboligListings },
   { source: "danbolig", discover: discoverDanboligUrls, fetchMany: fetchDanboligListings },
+  { source: "edc", discover: discoverEdcUrls, fetchMany: fetchEdcListings },
+  { source: "estate", discover: discoverEstateUrls, fetchMany: fetchEstateListings },
 ];
 
 export type SourceRunResult = {

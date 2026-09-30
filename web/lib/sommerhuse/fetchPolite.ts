@@ -9,6 +9,10 @@ const ROBOTS_DISALLOW: Record<string, string[]> = {
   "www.nybolig.dk": ["/soegeresultat-boliger"],
   "nybolig.dk": ["/soegeresultat-boliger"],
   "danbolig.dk": ["/umbraco", "/sitecore"],
+  "www.edc.dk": ["/umbraco", "/swagger"],
+  "edc.dk": ["/umbraco", "/swagger"],
+  "www.estate.dk": ["/sitecore", "/services/recasestatistics"],
+  "estate.dk": ["/sitecore", "/services/recasestatistics"],
 };
 
 function assertAllowed(url: string): void {

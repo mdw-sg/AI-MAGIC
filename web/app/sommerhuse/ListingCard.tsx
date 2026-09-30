@@ -7,6 +7,8 @@ const SOURCE_LABEL: Record<Listing["source"], string> = {
   home: "home",
   nybolig: "Nybolig",
   danbolig: "danbolig",
+  edc: "EDC",
+  estate: "Estate",
 };
 
 const currency = new Intl.NumberFormat("da-DK", {

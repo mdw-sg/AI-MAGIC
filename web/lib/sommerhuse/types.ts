@@ -1,4 +1,4 @@
-export type Source = "home" | "nybolig" | "danbolig";
+export type Source = "home" | "nybolig" | "danbolig" | "edc" | "estate";
 
 export type Listing = {
   id: string;

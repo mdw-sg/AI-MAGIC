@@ -21,6 +21,8 @@ const SOURCE_LABEL: Record<string, string> = {
   home: "home.dk",
   nybolig: "nybolig.dk",
   danbolig: "danbolig.dk",
+  edc: "edc.dk",
+  estate: "estate.dk",
 };
 
 const DEFAULT_MAX_PRICE = 4_000_000;
