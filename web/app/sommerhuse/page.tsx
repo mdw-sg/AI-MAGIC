@@ -27,7 +27,7 @@ const SOURCE_LABEL: Record<string, string> = {
 
 const DEFAULT_MAX_PRICE = 4_000_000;
 
-type View = "list" | "map";
+type View = "list" | "favorites" | "map";
 
 function buildUrl(maxPrice: number | null, sort: SortKey, view: View): string {
   const params = new URLSearchParams();
@@ -59,7 +59,8 @@ export default async function SommerhusePage(props: PageProps<"/sommerhuse">) {
   const sort = parseSortKey(sortParam);
 
   const viewParam = Array.isArray(searchParams.view) ? searchParams.view[0] : searchParams.view;
-  const view: View = viewParam === "map" ? "map" : "list";
+  const view: View =
+    viewParam === "map" ? "map" : viewParam === "favorites" ? "favorites" : "list";
 
   const listings = getAllListings();
   const runs = getLatestRefreshRuns();
@@ -161,6 +162,16 @@ export default async function SommerhusePage(props: PageProps<"/sommerhuse">) {
               Oversigt
             </a>
             <a
+              href={buildUrl(maxPrice, sort, "favorites")}
+              className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                view === "favorites"
+                  ? "bg-foreground text-background"
+                  : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-[#1a1a1a]"
+              }`}
+            >
+              Favoritter ({favorites.length})
+            </a>
+            <a
               href={buildUrl(maxPrice, sort, "map")}
               className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
                 view === "map"
@@ -175,6 +186,25 @@ export default async function SommerhusePage(props: PageProps<"/sommerhuse">) {
 
         {view === "map" ? (
           <MapViewLoader items={[...favorites, ...others]} />
+        ) : view === "favorites" ? (
+          <section className="flex flex-col gap-3">
+            {favorites.length === 0 ? (
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                Ingen favoritter endnu — klik ☆ på et sommerhus for at gemme det her.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {favorites.map(({ listing, match }, index) => (
+                  <ListingCard
+                    key={listing.id}
+                    listing={listing}
+                    match={match}
+                    eager={index < 3}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
         ) : (
           <>
             {favorites.length > 0 && (
