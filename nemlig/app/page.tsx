@@ -110,14 +110,20 @@ export default function NemligPage() {
             )}
             <Section
               title="Standardvarer"
-              subtitle="Dine faste varer plus alt, der er med i mindst halvdelen af dine seneste ordrer. Øko-udgaven vælges, når du har købt den før."
+              subtitle="Dine faste varer plus alt, der er med i mindst halvdelen af dine seneste ordrer. Øko-udgaven vælges, når du har købt den før — ellers en dansk."
               products={analysis.standard}
               windowSize={analysis.windowSize}
             />
             <Section
               title="Kan snart være tid igen"
-              subtitle="Varer du køber med fast mellemrum, hvor der nu er gået omtrent så længe."
+              subtitle="Varer du har købt mindst 3 gange med fast mellemrum og inden for det seneste halve år, hvor der nu er gået omtrent så længe."
               products={analysis.dueSoon}
+              windowSize={analysis.windowSize}
+            />
+            <Section
+              title="Husholdningsvarer"
+              subtitle="Rengøring, papir, pleje m.m., som du enten køber fast eller snart skal have igen."
+              products={analysis.household}
               windowSize={analysis.windowSize}
             />
             <details className="rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-[#111]">

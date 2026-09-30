@@ -1,4 +1,11 @@
-import { isOnlyWhenOnOffer, isOrganic, PINNED_STAPLES, productKey } from "./preferences";
+import {
+  isDanish,
+  isHousehold,
+  isOnlyWhenOnOffer,
+  isOrganic,
+  PINNED_STAPLES,
+  productKey,
+} from "./preferences";
 import type { Order, OrderLine } from "./types";
 
 // Standardvarer vurderes ud fra de seneste ordrer, så gamle vaner, man er
@@ -12,6 +19,10 @@ const STANDARD_MIN_COUNT = 3;
 // det sandsynligvis en vane, der er stoppet).
 const DUE_FROM = 0.85;
 const DUE_UNTIL = 3;
+// ...og kun for varer, man har købt flere gange og inden for det seneste
+// halve år, så enkeltkøb og gamle vaner ikke fylder listen.
+const DUE_MIN_PURCHASES = 3;
+const DUE_MAX_DAYS_SINCE = 183;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -25,6 +36,7 @@ export type ProductStats = {
   mainGroup: string;
   lastUnitPrice: number;
   isOrganic: boolean;
+  isDanish: boolean;
   /** Sat, når varen er en fast standardvare valgt af brugeren. */
   pinnedLabel: string | null;
   /** Antal af de seneste ordrer (vinduet), varen var med i. */
@@ -44,6 +56,8 @@ export type Analysis = {
   avgOrderIntervalDays: number | null;
   standard: ProductStats[];
   dueSoon: ProductStats[];
+  /** Husholdnings- og plejevarer, der er standard eller snart skal købes igen. */
+  household: ProductStats[];
   /** Slik m.m., som kun foreslås, når det er på tilbud. */
   onlyOnOffer: ProductStats[];
   other: ProductStats[];
@@ -77,11 +91,12 @@ function meanInterval(times: number[]): number | null {
   return (sorted[sorted.length - 1] - sorted[0]) / (sorted.length - 1) / DAY_MS;
 }
 
-/** Øko først, derefter den oftest købte, derefter den senest købte. */
+/** Øko først, så dansk, derefter den oftest købte, derefter den senest købte. */
 function pickVariant(variants: Iterable<Variant>): Variant {
   return [...variants].sort(
     (a, b) =>
       Number(isOrganic(b.line.name)) - Number(isOrganic(a.line.name)) ||
+      Number(isDanish(b.line)) - Number(isDanish(a.line)) ||
       b.count - a.count ||
       b.lastTime - a.lastTime
   )[0];
@@ -147,6 +162,7 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
       mainGroup: line.mainGroup,
       lastUnitPrice: line.unitPrice,
       isOrganic: isOrganic(line.name),
+      isDanish: isDanish(line),
       pinnedLabel: null,
       countInWindow: group.countInWindow,
       shareInWindow: windowSize ? group.countInWindow / windowSize : 0,
@@ -170,6 +186,7 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
       .sort(
         (a, b) =>
           Number(b.isOrganic) - Number(a.isOrganic) ||
+          Number(b.isDanish) - Number(a.isDanish) ||
           b.countInWindow - a.countInWindow ||
           b.totalCount - a.totalCount
       )[0];
@@ -179,23 +196,28 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
 
   const standard: ProductStats[] = [];
   const dueSoon: ProductStats[] = [];
+  const household: ProductStats[] = [];
   const onlyOnOffer: ProductStats[] = [];
   const other: ProductStats[] = [];
   const minCount = Math.min(STANDARD_MIN_COUNT, Math.max(2, Math.ceil(windowSize / 2)));
 
+  const isStandard = (p: ProductStats) =>
+    Boolean(p.pinnedLabel) || (p.shareInWindow >= STANDARD_SHARE && p.countInWindow >= minCount);
+  const isDue = (p: ProductStats) =>
+    p.avgIntervalDays !== null &&
+    p.totalCount >= DUE_MIN_PURCHASES &&
+    p.daysSinceLast <= DUE_MAX_DAYS_SINCE &&
+    p.daysSinceLast >= p.avgIntervalDays * DUE_FROM &&
+    p.daysSinceLast <= p.avgIntervalDays * DUE_UNTIL;
+
   for (const stats of all) {
     if (isOnlyWhenOnOffer(stats)) {
       onlyOnOffer.push(stats);
-    } else if (
-      stats.pinnedLabel ||
-      (stats.shareInWindow >= STANDARD_SHARE && stats.countInWindow >= minCount)
-    ) {
+    } else if (isHousehold(stats)) {
+      (isStandard(stats) || isDue(stats) ? household : other).push(stats);
+    } else if (isStandard(stats)) {
       standard.push(stats);
-    } else if (
-      stats.avgIntervalDays !== null &&
-      stats.daysSinceLast >= stats.avgIntervalDays * DUE_FROM &&
-      stats.daysSinceLast <= stats.avgIntervalDays * DUE_UNTIL
-    ) {
+    } else if (isDue(stats)) {
       dueSoon.push(stats);
     } else {
       other.push(stats);
@@ -204,6 +226,10 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
 
   standard.sort((a, b) => b.shareInWindow - a.shareInWindow || a.name.localeCompare(b.name, "da"));
   dueSoon.sort(
+    (a, b) =>
+      b.daysSinceLast / (b.avgIntervalDays ?? 1) - a.daysSinceLast / (a.avgIntervalDays ?? 1)
+  );
+  household.sort(
     (a, b) =>
       b.daysSinceLast / (b.avgIntervalDays ?? 1) - a.daysSinceLast / (a.avgIntervalDays ?? 1)
   );
@@ -218,6 +244,7 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
     avgOrderIntervalDays: meanInterval(withLines.map(purchaseTime)),
     standard,
     dueSoon,
+    household,
     onlyOnOffer,
     other,
     missingPinned,

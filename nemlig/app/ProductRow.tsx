@@ -1,5 +1,6 @@
 import Image from "next/image";
 import type { ProductStats } from "@/lib/analysis";
+import { isHousehold } from "@/lib/preferences";
 
 const currency = new Intl.NumberFormat("da-DK", { style: "currency", currency: "DKK" });
 
@@ -11,6 +12,8 @@ export default function ProductRow({
   windowSize: number;
 }) {
   const interval = product.avgIntervalDays;
+  // Øko/dansk er kun relevant for fødevarer, ikke fx opvasketabs.
+  const showOrigin = !product.isOrganic && !isHousehold(product);
   return (
     <li className="flex items-center gap-3 py-2">
       <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded bg-white">
@@ -36,17 +39,25 @@ export default function ProductRow({
         <p className="truncate text-xs text-zinc-600 dark:text-zinc-400">
           {product.description} · {currency.format(product.lastUnitPrice)}
         </p>
-        {(product.pinnedLabel || !product.isOrganic) && (
+        {(product.pinnedLabel || showOrigin) && (
           <div className="mt-1 flex gap-1">
             {product.pinnedLabel && (
               <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-950 dark:text-sky-300">
                 Fast standardvare
               </span>
             )}
-            {!product.isOrganic && (
+            {showOrigin && product.isDanish && (
+              <span
+                className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                title="Ikke økologisk, men dansk"
+              >
+                Dansk
+              </span>
+            )}
+            {showOrigin && !product.isDanish && (
               <span
                 className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                title="Du har ikke købt en økologisk udgave af denne vare før"
+                title="Du har ikke købt en økologisk eller dansk udgave af denne vare før"
               >
                 Ikke øko
               </span>

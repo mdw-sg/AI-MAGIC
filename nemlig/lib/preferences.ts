@@ -34,6 +34,22 @@ export function isOrganic(name: string): boolean {
   return ORGANIC.test(name);
 }
 
+const DANISH = /(^|[^a-zæøå])(danmark|dansk|danske)(?![a-zæøå])/i;
+
+/**
+ * Er økologi ikke muligt, vælges en dansk vare. Ordrehistorikken nævner kun
+ * sjældent oprindelsesland, så det gælder fuldt ud først, når produktsiden
+ * slås op ved "Læg i kurv".
+ */
+export function isDanish(product: { name: string; description: string }): boolean {
+  return DANISH.test(product.name) || DANISH.test(product.description);
+}
+
+/** Husholdnings- og plejevarer får deres egen liste i stedet for standardlisten. */
+export function isHousehold(product: { mainGroup: string }): boolean {
+  return product.mainGroup === "Husholdning" || product.mainGroup === "Pleje";
+}
+
 /**
  * Nøgle, der samler varianter af samme vare, fx "Blomkål" og "Blomkål øko.",
  * så øko-udgaven kan vælges frem for den konventionelle.
