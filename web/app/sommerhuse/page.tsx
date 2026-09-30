@@ -64,8 +64,13 @@ export default function SommerhusePage() {
               Favoritter ({favorites.length})
             </h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {favorites.map(({ listing, match }) => (
-                <ListingCard key={listing.id} listing={listing} match={match} />
+              {favorites.map(({ listing, match }, index) => (
+                <ListingCard
+                  key={listing.id}
+                  listing={listing}
+                  match={match}
+                  eager={index < 3}
+                />
               ))}
             </div>
           </section>
@@ -82,8 +87,13 @@ export default function SommerhusePage() {
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {others.map(({ listing, match }) => (
-                <ListingCard key={listing.id} listing={listing} match={match} />
+              {others.map(({ listing, match }, index) => (
+                <ListingCard
+                  key={listing.id}
+                  listing={listing}
+                  match={match}
+                  eager={favorites.length === 0 && index < 3}
+                />
               ))}
             </div>
           )}
