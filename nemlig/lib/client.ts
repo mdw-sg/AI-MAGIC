@@ -1,18 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { clearSession, cookieHeader, getSession } from "./session";
 
-const BASE_URL = "https://www.nemlig.com";
+const WEB = "https://www.nemlig.com";
+const SEARCH = "https://webapi.prod.knl.nemlig.it";
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+
+type Method = "GET" | "POST";
 
 // Den eneste liste over nemlig-endpoints, værktøjet må kalde. Alt andet —
 // herunder checkout, betaling, gemte kort og kontooplysninger — afvises her,
 // før der overhovedet sendes en forespørgsel. Nye endpoints skal tilføjes
 // eksplicit og bevidst.
-const ALLOWED_ENDPOINTS: { method: "GET" | "POST"; path: RegExp }[] = [
-  { method: "GET", path: /^\/webapi\/Token$/ },
-  { method: "GET", path: /^\/webapi\/order\/GetBasicOrderHistory$/ },
-  { method: "GET", path: /^\/webapi\/v2\/order\/GetOrderHistory\/\d+$/ },
+const ALLOWED_ENDPOINTS: { method: Method; origin: string; path: RegExp }[] = [
+  { method: "GET", origin: WEB, path: /^\/webapi\/Token$/ },
+  { method: "GET", origin: WEB, path: /^\/webapi\/order\/GetBasicOrderHistory$/ },
+  { method: "GET", origin: WEB, path: /^\/webapi\/v2\/order\/GetOrderHistory\/\d+$/ },
+  { method: "GET", origin: WEB, path: /^\/webapi\/basket\/GetBasket$/ },
+  { method: "POST", origin: WEB, path: /^\/webapi\/basket\/AddToBasket$/ },
+  { method: "GET", origin: SEARCH, path: /^\/searchgateway\/api\/search$/ },
 ];
 
 export class NotLoggedInError extends Error {
@@ -22,25 +28,23 @@ export class NotLoggedInError extends Error {
   }
 }
 
-function assertAllowed(method: "GET" | "POST", url: URL) {
-  if (url.origin !== BASE_URL) {
-    throw new Error(`Blokeret: ${url.origin} er ikke nemlig.com`);
-  }
+function assertAllowed(method: Method, url: URL) {
   const allowed = ALLOWED_ENDPOINTS.some(
-    (e) => e.method === method && e.path.test(url.pathname)
+    (e) => e.method === method && e.origin === url.origin && e.path.test(url.pathname)
   );
   if (!allowed) {
-    throw new Error(`Blokeret: ${method} ${url.pathname} er ikke på listen over tilladte endpoints`);
+    throw new Error(
+      `Blokeret: ${method} ${url.origin}${url.pathname} er ikke på listen over tilladte endpoints`
+    );
   }
 }
 
 async function rawFetch(
-  method: "GET" | "POST",
-  pathAndQuery: string,
+  method: Method,
+  url: URL,
   headers: Record<string, string>,
   body?: unknown
 ): Promise<Response> {
-  const url = new URL(pathAndQuery, BASE_URL);
   assertAllowed(method, url);
   return fetch(url, {
     method,
@@ -70,6 +74,16 @@ function hasCustomerId(jwt: string): boolean {
   }
 }
 
+async function readJson<T>(res: Response, url: URL): Promise<T> {
+  const text = await res.text();
+  if (!res.ok) throw new Error(`nemlig svarede ${res.status} på ${url.pathname}`);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`nemlig svarede ikke med JSON på ${url.pathname}`);
+  }
+}
+
 /**
  * En forbindelse til nemlig for én arbejdsgang (fx én synkronisering). Nemlig's
  * bearer-token lever kun fem minutter, men login-cookien et år, så et nyt token
@@ -80,7 +94,8 @@ export async function connect() {
   if (!session) throw new NotLoggedInError();
   const cookie = cookieHeader(session);
 
-  const tokenRes = await rawFetch("GET", "/webapi/Token", { Cookie: cookie });
+  const tokenUrl = new URL("/webapi/Token", WEB);
+  const tokenRes = await rawFetch("GET", tokenUrl, { Cookie: cookie });
   if (!tokenRes.ok) {
     throw new Error(`Kunne ikke hente token fra nemlig (${tokenRes.status})`);
   }
@@ -92,21 +107,24 @@ export async function connect() {
     throw new NotLoggedInError("Login på nemlig.com er udløbet. Log ind igen.");
   }
 
-  async function getJson<T>(pathAndQuery: string): Promise<T> {
-    const res = await rawFetch("GET", pathAndQuery, {
-      Cookie: cookie,
-      Authorization: `Bearer ${token}`,
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      throw new Error(`nemlig svarede ${res.status} på ${pathAndQuery.split("?")[0]}`);
-    }
-    try {
-      return JSON.parse(text) as T;
-    } catch {
-      throw new Error(`nemlig svarede ikke med JSON på ${pathAndQuery.split("?")[0]}`);
-    }
+  // Login-cookien sendes kun til www.nemlig.com, aldrig til søge-API'et.
+  function headersFor(url: URL): Record<string, string> {
+    return url.origin === WEB
+      ? { Cookie: cookie, Authorization: `Bearer ${token}` }
+      : { Authorization: `Bearer ${token}` };
   }
 
-  return { getJson };
+  async function getJson<T>(pathAndQuery: string, origin = WEB): Promise<T> {
+    const url = new URL(pathAndQuery, origin);
+    return readJson<T>(await rawFetch("GET", url, headersFor(url)), url);
+  }
+
+  async function postJson<T>(path: string, body: unknown): Promise<T> {
+    const url = new URL(path, WEB);
+    return readJson<T>(await rawFetch("POST", url, headersFor(url), body), url);
+  }
+
+  return { getJson, postJson, searchOrigin: SEARCH };
 }
+
+export type NemligConnection = Awaited<ReturnType<typeof connect>>;

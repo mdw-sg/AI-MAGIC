@@ -54,6 +54,7 @@ npm run lint        # eslint
 - Login happens in a real Chrome window opened by `lib/session.ts`; the code must never fill in or read the login form or listen to page traffic. Only nemlig's cookies are stored.
 - Personal data (session, order cache) lives in `~/.nemlig-tool/` (mode 0600), never in the repo, which sits in OneDrive and is pushed to GitHub.
 - `lib/client.ts` has an explicit endpoint allowlist; checkout, payment and account endpoints must never be added. The tool never places an order.
+- `lib/basket.ts` only ever raises basket quantities (nemlig's `AddToBasket` sets an absolute quantity, so the basket is read first); it must never lower or remove what the user put there. Login cookies go only to www.nemlig.com, not to the search API host.
 - Order data is stripped to product fields in `lib/orders.ts` before saving; addresses, names and phone numbers are dropped.
 
 ## Framework agent-rules files

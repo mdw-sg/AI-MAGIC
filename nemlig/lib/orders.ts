@@ -35,6 +35,8 @@ type RawOrderLine = {
   ProductUrl?: string;
   CampaignName?: string;
   IsMealBox?: boolean;
+  IsProductLine?: boolean;
+  IsDepositLine?: boolean;
 };
 
 function sleep(ms: number) {
@@ -100,7 +102,9 @@ export async function syncOrders(): Promise<OrderCache> {
       deliveryDate: summary.DeliveryTime?.Start ?? null,
       status: summary.Status,
       subTotal: summary.SubTotal,
-      lines: (details.Lines ?? []).filter((l) => !l.IsMealBox).map(toLine),
+      lines: (details.Lines ?? [])
+        .filter((l) => l.IsProductLine !== false && !l.IsDepositLine && !l.IsMealBox)
+        .map(toLine),
     });
     await sleep(DELAY_BETWEEN_REQUESTS_MS);
   }

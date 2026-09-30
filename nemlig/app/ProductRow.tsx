@@ -1,4 +1,3 @@
-import Image from "next/image";
 import type { ProductStats } from "@/lib/analysis";
 import { isHousehold } from "@/lib/preferences";
 
@@ -7,35 +6,32 @@ const currency = new Intl.NumberFormat("da-DK", { style: "currency", currency: "
 export default function ProductRow({
   product,
   windowSize,
+  selected,
+  quantity,
+  onToggle,
+  onQuantity,
 }: {
   product: ProductStats;
   windowSize: number;
+  selected: boolean;
+  quantity: number;
+  onToggle: () => void;
+  onQuantity: (quantity: number) => void;
 }) {
   const interval = product.avgIntervalDays;
   // Øko/dansk er kun relevant for fødevarer, ikke fx opvasketabs.
   const showOrigin = !product.isOrganic && !isHousehold(product);
   return (
-    <li className="flex items-center gap-3 py-2">
-      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded bg-white">
-        {product.imageUrl && (
-          <Image src={product.imageUrl} alt="" fill sizes="48px" className="object-contain" />
-        )}
-      </div>
+    <li className={`flex items-center gap-3 py-2 ${selected ? "" : "opacity-60"}`}>
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggle}
+        aria-label={`Læg ${product.name} i kurven`}
+        className="h-4 w-4 shrink-0 accent-foreground"
+      />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-black dark:text-zinc-50">
-          {product.productUrl ? (
-            <a
-              href={`https://www.nemlig.com/${product.productUrl}`}
-              target="_blank"
-              rel="noreferrer"
-              className="hover:underline"
-            >
-              {product.name}
-            </a>
-          ) : (
-            product.name
-          )}
-        </p>
+        <p className="truncate text-sm font-medium text-black dark:text-zinc-50">{product.name}</p>
         <p className="truncate text-xs text-zinc-600 dark:text-zinc-400">
           {product.description} · {currency.format(product.lastUnitPrice)}
         </p>
@@ -65,16 +61,22 @@ export default function ProductRow({
           </div>
         )}
       </div>
-      <div className="shrink-0 text-right text-xs text-zinc-600 dark:text-zinc-400">
+      <div className="hidden shrink-0 text-right text-xs text-zinc-600 sm:block dark:text-zinc-400">
         <p>
           {product.countInWindow}/{windowSize} ordrer
           {interval !== null && ` · ca. hver ${Math.round(interval)}. dag`}
         </p>
         <p>Sidst købt for {product.daysSinceLast} dage siden</p>
       </div>
-      <div className="w-14 shrink-0 text-right text-sm font-semibold text-black dark:text-zinc-50">
-        {product.typicalQuantity} stk
-      </div>
+      <input
+        type="number"
+        min={1}
+        max={30}
+        value={quantity}
+        onChange={(e) => onQuantity(Number(e.target.value))}
+        aria-label={`Antal ${product.name}`}
+        className="h-8 w-14 shrink-0 rounded-md border border-black/[.12] bg-white px-2 text-right text-sm dark:border-white/[.2] dark:bg-[#111]"
+      />
     </li>
   );
 }

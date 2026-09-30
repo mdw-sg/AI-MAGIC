@@ -1,44 +1,12 @@
-import { analyzeOrders, type ProductStats } from "@/lib/analysis";
+import { analyzeOrders } from "@/lib/analysis";
 import { getOrderCache } from "@/lib/orders";
 import { getSession } from "@/lib/session";
 import ActionButton from "./ActionButton";
-import ProductRow from "./ProductRow";
+import BasketPlanner from "./BasketPlanner";
 
 // Login-status og ordrehistorik ligger i lokale filer, der ændres via
 // knapperne, så siden skal læses ved hvert kald.
 export const dynamic = "force-dynamic";
-
-function Section({
-  title,
-  subtitle,
-  products,
-  windowSize,
-}: {
-  title: string;
-  subtitle: string;
-  products: ProductStats[];
-  windowSize: number;
-}) {
-  return (
-    <section className="flex flex-col gap-2 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-[#111]">
-      <div>
-        <h2 className="text-lg font-semibold text-black dark:text-zinc-50">
-          {title} ({products.length})
-        </h2>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">{subtitle}</p>
-      </div>
-      {products.length === 0 ? (
-        <p className="text-sm text-zinc-500">Ingen varer.</p>
-      ) : (
-        <ul className="divide-y divide-black/[.06] dark:divide-white/[.08]">
-          {products.map((p) => (
-            <ProductRow key={p.productId} product={p} windowSize={windowSize} />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
 
 export default function NemligPage() {
   const session = getSession();
@@ -100,7 +68,7 @@ export default function NemligPage() {
               Analyseret ud fra dine seneste {analysis.windowSize} af {analysis.orderCount} ordrer
               {analysis.avgOrderIntervalDays !== null &&
                 ` · du bestiller ca. hver ${Math.round(analysis.avgOrderIntervalDays)}. dag`}
-              . Antal er dit typiske antal pr. ordre.
+              . Antal er dit typiske antal pr. ordre — ret det og sæt flueben, før du lægger i kurven. Værktøjet vælger øko på lager, ellers dansk, og fjerner aldrig noget fra kurven.
             </p>
             {analysis.missingPinned.length > 0 && (
               <p className="text-sm text-amber-700 dark:text-amber-400">
@@ -108,44 +76,7 @@ export default function NemligPage() {
                 {analysis.missingPinned.join(", ")}.
               </p>
             )}
-            <Section
-              title="Standardvarer"
-              subtitle="Dine faste varer plus alt, der er med i mindst halvdelen af dine seneste ordrer. Øko-udgaven vælges, når du har købt den før — ellers en dansk."
-              products={analysis.standard}
-              windowSize={analysis.windowSize}
-            />
-            <Section
-              title="Kan snart være tid igen"
-              subtitle="Varer du har købt mindst 3 gange med fast mellemrum og inden for det seneste halve år, hvor der nu er gået omtrent så længe."
-              products={analysis.dueSoon}
-              windowSize={analysis.windowSize}
-            />
-            <Section
-              title="Husholdningsvarer"
-              subtitle="Rengøring, papir, pleje m.m., som du enten køber fast eller snart skal have igen."
-              products={analysis.household}
-              windowSize={analysis.windowSize}
-            />
-            <details className="rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-[#111]">
-              <summary className="cursor-pointer text-sm font-medium text-black dark:text-zinc-50">
-                Slik og kiosk — kun når det er på tilbud ({analysis.onlyOnOffer.length})
-              </summary>
-              <ul className="mt-2 divide-y divide-black/[.06] dark:divide-white/[.08]">
-                {analysis.onlyOnOffer.map((p) => (
-                  <ProductRow key={p.productId} product={p} windowSize={analysis.windowSize} />
-                ))}
-              </ul>
-            </details>
-            <details className="rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-[#111]">
-              <summary className="cursor-pointer text-sm font-medium text-black dark:text-zinc-50">
-                Øvrige varer du har købt ({analysis.other.length})
-              </summary>
-              <ul className="mt-2 divide-y divide-black/[.06] dark:divide-white/[.08]">
-                {analysis.other.map((p) => (
-                  <ProductRow key={p.productId} product={p} windowSize={analysis.windowSize} />
-                ))}
-              </ul>
-            </details>
+            <BasketPlanner analysis={analysis} />
           </>
         )}
       </main>

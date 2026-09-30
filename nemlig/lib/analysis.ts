@@ -110,6 +110,17 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
   const windowSize = windowIds.size;
 
   const groups = new Map<string, Group>();
+  // Nemlig omdøber nogle gange en vare og beholder varenummeret. Et varenummer
+  // hører derfor altid til den gruppe, det første gang blev set i (nyeste navn).
+  const keyForId = new Map<string, string>();
+  const keyFor = (line: OrderLine) => {
+    let key = keyForId.get(line.productId);
+    if (!key) {
+      key = productKey(line.name);
+      keyForId.set(line.productId, key);
+    }
+    return key;
+  };
   for (const order of withLines) {
     const time = purchaseTime(order);
     const inWindow = windowIds.has(order.id);
@@ -118,7 +129,7 @@ export function analyzeOrders(orders: Order[], now = Date.now()): Analysis {
     // (fx øko og ikke-øko) af samme vare.
     const perOrder = new Map<string, { quantity: number; lines: OrderLine[] }>();
     for (const line of order.lines) {
-      const key = productKey(line.name);
+      const key = keyFor(line);
       const entry = perOrder.get(key) ?? { quantity: 0, lines: [] };
       entry.quantity += line.quantity;
       entry.lines.push(line);
