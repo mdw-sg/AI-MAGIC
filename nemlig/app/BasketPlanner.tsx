@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Analysis, ProductStats } from "@/lib/analysis";
 import type { BasketItemResult } from "@/lib/basket";
+import type { Suggestion, SuggestionCache } from "@/lib/suggestions";
 import ProductRow from "./ProductRow";
 
 type Selection = Record<string, { selected: boolean; quantity: number }>;
@@ -12,7 +14,35 @@ type Tab = {
   label: string;
   description: string;
   groups: { heading?: string; products: ProductStats[] }[];
+  isAi?: boolean;
 };
+
+/**
+ * Et AI-forslag vises og lægges i kurven som alle andre varer. Det er en vare,
+ * brugeren ikke har købt før, så historik-felterne er tomme.
+ */
+function suggestionToStats(s: Suggestion): ProductStats {
+  return {
+    productId: s.offer.productId,
+    name: s.offer.name,
+    description: s.offer.description,
+    imageUrl: null,
+    productUrl: null,
+    mainGroup: s.offer.section,
+    lastUnitPrice: s.offer.price,
+    isOrganic: s.offer.isOrganic,
+    isDanish: s.offer.isDanish,
+    offer: s.offer,
+    pinnedLabel: null,
+    countInWindow: 0,
+    shareInWindow: 0,
+    totalCount: 0,
+    typicalQuantity: s.quantity,
+    lastPurchased: "",
+    daysSinceLast: 0,
+    avgIntervalDays: null,
+  };
+}
 
 const currency = new Intl.NumberFormat("da-DK", { style: "currency", currency: "DKK" });
 
@@ -24,7 +54,8 @@ const STATUS_LABEL: Record<BasketItemResult["status"], string> = {
   error: "Fejl",
 };
 
-function buildTabs(analysis: Analysis): Tab[] {
+function buildTabs(analysis: Analysis, suggestions: SuggestionCache | null): Tab[] {
+  const ai = suggestions?.suggestions ?? [];
   return [
     {
       id: "standard",
@@ -49,6 +80,26 @@ function buildTabs(analysis: Analysis): Tab[] {
           ).toLocaleString("da-DK")}). Køber du varen økologisk, vises kun tilbud på øko-udgaven.`
         : 'Klik "Opdater ordrer og tilbud" for at hente ugens tilbud.',
       groups: [{ products: analysis.onOffer }],
+    },
+    {
+      id: "ai",
+      label: "AI-forslag",
+      isAi: true,
+      description: suggestions
+        ? `Claudes forslag fra ugens tilbud på varer, du ikke har købt før — lavet ${new Date(
+            suggestions.createdAt
+          ).toLocaleString("da-DK")}. Kun øko eller dansk. Intet er valgt på forhånd.`
+        : "Lad Claude gennemgå ugens tilbud og foreslå nye varer, der passer til dine vaner. Det tager ca. et minut.",
+      groups: [
+        {
+          heading: "Nyt der passer til dig",
+          products: ai.filter((s) => s.group === "new").map(suggestionToStats),
+        },
+        {
+          heading: "Godt tilbud på en anden udgave af noget, du plejer at købe",
+          products: ai.filter((s) => s.group === "alternative").map(suggestionToStats),
+        },
+      ],
     },
     {
       id: "household",
@@ -84,8 +135,19 @@ function initialSelection(tabs: Tab[], standard: ProductStats[]): Selection {
   return selection;
 }
 
-export default function BasketPlanner({ analysis }: { analysis: Analysis }) {
-  const tabs = useMemo(() => buildTabs(analysis), [analysis]);
+export default function BasketPlanner({
+  analysis,
+  suggestions,
+}: {
+  analysis: Analysis;
+  suggestions: SuggestionCache | null;
+}) {
+  const router = useRouter();
+  const tabs = useMemo(() => buildTabs(analysis, suggestions), [analysis, suggestions]);
+  const reasons = useMemo(
+    () => new Map((suggestions?.suggestions ?? []).map((s) => [s.offer.productId, s.reason])),
+    [suggestions]
+  );
   const [activeTab, setActiveTab] = useState(tabs[0].id);
   const [selection, setSelection] = useState<Selection>(() =>
     initialSelection(tabs, analysis.standard)
@@ -93,6 +155,12 @@ export default function BasketPlanner({ analysis }: { analysis: Analysis }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<BasketItemResult[] | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  // Nye AI-forslag dukker op efter første render, så de har ingen indgang endnu.
+  const sel = (p: ProductStats) =>
+    selection[p.productId] ?? { selected: false, quantity: p.typicalQuantity };
 
   // En vare kan stå i flere faner (fx en standardvare på tilbud); den deler
   // flueben og antal på tværs og tælles kun én gang.
@@ -102,16 +170,43 @@ export default function BasketPlanner({ analysis }: { analysis: Analysis }) {
       for (const group of tab.groups) for (const p of group.products) byId.set(p.productId, p);
     return [...byId.values()];
   }, [tabs]);
-  const chosen = uniqueProducts.filter((p) => selection[p.productId]?.selected);
+  const chosen = uniqueProducts.filter((p) => sel(p).selected);
 
   const tab = tabs.find((t) => t.id === activeTab) ?? tabs[0];
 
-  function toggle(id: string) {
-    setSelection((s) => ({ ...s, [id]: { ...s[id], selected: !s[id].selected } }));
+  function toggle(p: ProductStats) {
+    const current = sel(p);
+    setSelection((s) => ({ ...s, [p.productId]: { ...current, selected: !current.selected } }));
   }
-  function setQuantity(id: string, quantity: number) {
+  function setQuantity(p: ProductStats, quantity: number) {
     const q = Math.min(30, Math.max(1, Math.round(quantity) || 1));
-    setSelection((s) => ({ ...s, [id]: { ...s[id], quantity: q } }));
+    const current = sel(p);
+    setSelection((s) => ({ ...s, [p.productId]: { ...current, quantity: q } }));
+  }
+
+  async function runSuggestions() {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await fetch("/api/suggestions", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) setAiError(data.error ?? "AI-forslag fejlede");
+      router.refresh();
+    } catch {
+      setAiError("AI-forslag fejlede — tjek terminalens log");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function dismiss(p: ProductStats) {
+    setSelection((s) => ({ ...s, [p.productId]: { ...sel(p), selected: false } }));
+    await fetch("/api/suggestions/dismiss", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productId: p.productId }),
+    }).catch(() => {});
+    router.refresh();
   }
 
   async function addToBasket() {
@@ -127,7 +222,7 @@ export default function BasketPlanner({ analysis }: { analysis: Analysis }) {
             productId: p.productId,
             name: p.name,
             mainGroup: p.mainGroup,
-            quantity: selection[p.productId].quantity,
+            quantity: sel(p).quantity,
             preferredProductId: p.offer?.productId ?? null,
           })),
         }),
@@ -153,7 +248,7 @@ export default function BasketPlanner({ analysis }: { analysis: Analysis }) {
           const products = new Map(
             t.groups.flatMap((g) => g.products).map((p) => [p.productId, p])
           );
-          const selectedCount = [...products.keys()].filter((id) => selection[id]?.selected).length;
+          const selectedCount = [...products.values()].filter((p) => sel(p).selected).length;
           const isActive = t.id === tab.id;
           return (
             <button
@@ -187,7 +282,24 @@ export default function BasketPlanner({ analysis }: { analysis: Analysis }) {
         role="tabpanel"
         className="flex flex-col gap-3 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-[#111]"
       >
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">{tab.description}</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{tab.description}</p>
+          {tab.isAi && (
+            <div className="flex flex-col items-end gap-1">
+              <button
+                onClick={runSuggestions}
+                disabled={aiLoading || !analysis.offersFetchedAt}
+                className="flex h-9 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
+              >
+                {aiLoading ? "Claude tænker…" : suggestions ? "Kør igen" : "Få AI-forslag"}
+              </button>
+              {aiLoading && (
+                <p className="text-xs text-zinc-600 dark:text-zinc-400">Det tager ca. et minut.</p>
+              )}
+              {aiError && <p className="max-w-xs text-right text-xs text-rose-600 dark:text-rose-400">{aiError}</p>}
+            </div>
+          )}
+        </div>
         {tab.groups.map((group, i) => (
           <div key={i} className="flex flex-col gap-1">
             {group.heading && (
@@ -204,10 +316,12 @@ export default function BasketPlanner({ analysis }: { analysis: Analysis }) {
                     key={p.productId}
                     product={p}
                     windowSize={analysis.windowSize}
-                    selected={selection[p.productId].selected}
-                    quantity={selection[p.productId].quantity}
-                    onToggle={() => toggle(p.productId)}
-                    onQuantity={(q) => setQuantity(p.productId, q)}
+                    selected={sel(p).selected}
+                    quantity={sel(p).quantity}
+                    onToggle={() => toggle(p)}
+                    onQuantity={(q) => setQuantity(p, q)}
+                    reason={tab.isAi ? reasons.get(p.productId) : undefined}
+                    onDismiss={tab.isAi ? () => dismiss(p) : undefined}
                   />
                 ))}
               </ul>

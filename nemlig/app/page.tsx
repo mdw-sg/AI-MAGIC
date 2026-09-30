@@ -1,6 +1,7 @@
 import { analyzeOrders } from "@/lib/analysis";
 import { getOfferCache } from "@/lib/offers";
 import { getOrderCache } from "@/lib/orders";
+import { getSuggestionCache } from "@/lib/suggestions";
 import { getSession } from "@/lib/session";
 import ActionButton from "./ActionButton";
 import BasketPlanner from "./BasketPlanner";
@@ -42,6 +43,13 @@ export default function NemligPage() {
                   hint="Henter nye ordrer og ugens tilbud. Første gang hentes op til 40 ordrer — det tager lidt tid."
                 />
                 <ActionButton
+                  endpoint="/api/basket/clear"
+                  label="Tøm kurv"
+                  loadingLabel="Tømmer…"
+                  confirmText="Vil du fjerne ALLE varer fra din kurv på nemlig.com? Det kan ikke fortrydes."
+                  variant="danger"
+                />
+                <ActionButton
                   endpoint="/api/logout"
                   label="Log ud"
                   loadingLabel="Logger ud…"
@@ -79,7 +87,7 @@ export default function NemligPage() {
                 {analysis.missingPinned.join(", ")}.
               </p>
             )}
-            <BasketPlanner analysis={analysis} />
+            <BasketPlanner analysis={analysis} suggestions={getSuggestionCache()} />
           </>
         )}
       </main>

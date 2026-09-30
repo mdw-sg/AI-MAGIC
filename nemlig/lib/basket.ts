@@ -241,3 +241,23 @@ export async function addItemsToBasket(items: BasketRequestItem[]): Promise<Bask
   }
   return results;
 }
+
+/**
+ * Tømmer hele kurven. Det er den eneste funktion, der sætter antal ned, og
+ * den kaldes kun fra "Tøm kurv"-knappen efter brugerens bekræftelse.
+ */
+export async function clearBasket(): Promise<number> {
+  const nemlig = await connect();
+  const basket = await nemlig.getJson<RawBasket>("/webapi/basket/GetBasket");
+  const ids = [...basketQuantities(basket).keys()];
+  for (const id of ids) {
+    await nemlig.postJson("/webapi/basket/AddToBasket", {
+      ProductId: id,
+      Quantity: 0,
+      AffectPartialQuantity: false,
+      DisableQuantityValidation: false,
+    });
+    await sleep(DELAY_BETWEEN_REQUESTS_MS);
+  }
+  return ids.length;
+}

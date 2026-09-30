@@ -10,6 +10,8 @@ export default function ProductRow({
   quantity,
   onToggle,
   onQuantity,
+  reason,
+  onDismiss,
 }: {
   product: ProductStats;
   windowSize: number;
@@ -17,6 +19,9 @@ export default function ProductRow({
   quantity: number;
   onToggle: () => void;
   onQuantity: (quantity: number) => void;
+  /** AI'ens begrundelse for forslaget. */
+  reason?: string;
+  onDismiss?: () => void;
 }) {
   const interval = product.avgIntervalDays;
   // Øko/dansk er kun relevant for fødevarer, ikke fx opvasketabs.
@@ -70,14 +75,26 @@ export default function ProductRow({
             )}
           </div>
         )}
+        {reason && <p className="mt-1 text-xs text-zinc-700 dark:text-zinc-300">💡 {reason}</p>}
       </div>
-      <div className="hidden shrink-0 text-right text-xs text-zinc-600 sm:block dark:text-zinc-400">
-        <p>
-          {product.countInWindow}/{windowSize} ordrer
-          {interval !== null && ` · ca. hver ${Math.round(interval)}. dag`}
-        </p>
-        <p>Sidst købt for {product.daysSinceLast} dage siden</p>
-      </div>
+      {product.totalCount > 0 && (
+        <div className="hidden shrink-0 text-right text-xs text-zinc-600 sm:block dark:text-zinc-400">
+          <p>
+            {product.countInWindow}/{windowSize} ordrer
+            {interval !== null && ` · ca. hver ${Math.round(interval)}. dag`}
+          </p>
+          <p>Sidst købt for {product.daysSinceLast} dage siden</p>
+        </div>
+      )}
+      {onDismiss && (
+        <button
+          onClick={onDismiss}
+          className="shrink-0 text-xs text-zinc-500 hover:text-rose-600 hover:underline dark:hover:text-rose-400"
+          title="Skjul forslaget og husk det til næste gang"
+        >
+          Ikke interesseret
+        </button>
+      )}
       <input
         type="number"
         min={1}
