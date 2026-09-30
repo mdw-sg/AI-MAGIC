@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { getAllListings, getLatestRefreshRuns } from "@/lib/sommerhuse/db";
 import { matchListing } from "@/lib/sommerhuse/criteria";
 import { parseSortKey, sortItems, type SortKey } from "@/lib/sommerhuse/sort";
@@ -5,6 +6,11 @@ import RefreshButton from "./RefreshButton";
 import ListingCard from "./ListingCard";
 import SortSelect from "./SortSelect";
 import MapViewLoader from "./MapViewLoader";
+
+export const metadata: Metadata = {
+  title: "Sommerhuse",
+  description: "Dashboard over sommerhuse/fritidsboliger fra home.dk, nybolig.dk og danbolig.dk.",
+};
 
 // DB-indholdet ændrer sig uden for Next.js' egen fetch-cache (via
 // "Opdater nu"-knappen), så siden skal læses fra databasen ved hvert kald
