@@ -44,7 +44,7 @@ function buildTabs(analysis: Analysis): Tab[] {
       id: "offers",
       label: "På tilbud",
       description: analysis.offersFetchedAt
-        ? `Varer du har købt før, som er på tilbud nu (tilbud hentet ${new Date(
+        ? `Varer du har købt mindst 2 gange, som er på tilbud nu (tilbud hentet ${new Date(
             analysis.offersFetchedAt
           ).toLocaleString("da-DK")}). Køber du varen økologisk, vises kun tilbud på øko-udgaven.`
         : 'Klik "Opdater ordrer og tilbud" for at hente ugens tilbud.',

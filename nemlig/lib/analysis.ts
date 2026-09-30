@@ -25,6 +25,9 @@ const DUE_UNTIL = 3;
 const DUE_MIN_PURCHASES = 3;
 const DUE_MAX_DAYS_SINCE = 183;
 
+// Tilbud vises kun på varer, man har købt flere gange — ikke engangskøb.
+const OFFER_MIN_PURCHASES = 2;
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type ProductStats = {
@@ -289,7 +292,7 @@ export function analyzeOrders(
       b.daysSinceLast / (b.avgIntervalDays ?? 1) - a.daysSinceLast / (a.avgIntervalDays ?? 1)
   );
   const onOffer = all
-    .filter((p) => p.offer)
+    .filter((p) => p.offer && p.totalCount >= OFFER_MIN_PURCHASES)
     .sort((a, b) => b.totalCount - a.totalCount || a.name.localeCompare(b.name, "da"));
   household.sort(
     (a, b) =>
