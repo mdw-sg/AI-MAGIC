@@ -1,9 +1,11 @@
 import {
+  FORCE_DUE,
   isDanish,
   isHousehold,
   isOnlyWhenOnOffer,
   isOrganic,
   PINNED_STAPLES,
+  preferenceRank,
   productKey,
 } from "./preferences";
 import type { Offer } from "./offers";
@@ -209,6 +211,7 @@ export function analyzeOrders(
   }
 
   const all: ProductStats[] = [];
+  const groupOf = new Map<ProductStats, Group>();
   for (const group of groups.values()) {
     const { line } = pickVariant(group.variants.values());
     const lastTime = Math.max(...group.times);
@@ -237,21 +240,56 @@ export function analyzeOrders(
     };
     stats.offer = findOffer(stats, group.variants.keys(), offersById, offersByKey);
     all.push(stats);
+    groupOf.set(stats, group);
   }
 
-  // Faste standardvarer: vælg den bedste match for hver (øko, oftest købt
-  // for nylig, oftest købt i alt).
+  // Faste standardvarer. Har brugeren en prioritering (fx "Agurk dansk" før
+  // "Agurk øko."), vælges varianten efter den på tværs af alle matchende
+  // varer; ellers den bedste match (øko, dansk, oftest købt).
   const missingPinned: string[] = [];
+  const superseded = new Set<ProductStats>();
   for (const staple of PINNED_STAPLES) {
-    const best = all
-      .filter((p) => staple.match.test(p.name) && !isOnlyWhenOnOffer(p))
-      .sort(
-        (a, b) =>
-          Number(b.isOrganic) - Number(a.isOrganic) ||
-          Number(b.isDanish) - Number(a.isDanish) ||
-          b.countInWindow - a.countInWindow ||
-          b.totalCount - a.totalCount
-      )[0];
+    const matching = all.filter((p) => staple.match.test(p.name) && !isOnlyWhenOnOffer(p));
+    let best: ProductStats | undefined;
+
+    if (staple.prefer) {
+      let bestVariant: { stats: ProductStats; variant: Variant; rank: number } | null = null;
+      for (const stats of matching) {
+        for (const variant of groupOf.get(stats)!.variants.values()) {
+          const rank = preferenceRank(staple, variant.line);
+          if (
+            rank < Infinity &&
+            (!bestVariant || rank < bestVariant.rank || (rank === bestVariant.rank && variant.count > bestVariant.variant.count))
+          ) {
+            bestVariant = { stats, variant, rank };
+          }
+        }
+      }
+      if (bestVariant) {
+        const { stats, variant } = bestVariant;
+        const { line } = variant;
+        Object.assign(stats, {
+          productId: line.productId,
+          name: line.name,
+          description: line.description,
+          lastUnitPrice: line.unitPrice,
+          isOrganic: isOrganic(line.name),
+          isDanish: isDanish(line),
+        });
+        stats.offer = findOffer(stats, [line.productId], offersById, offersByKey);
+        best = stats;
+        // De andre varianter er alternativer, ikke ekstra standardvarer.
+        for (const other of matching) if (other !== stats) superseded.add(other);
+      }
+    }
+
+    best ??= matching.sort(
+      (a, b) =>
+        Number(b.isOrganic) - Number(a.isOrganic) ||
+        Number(b.isDanish) - Number(a.isDanish) ||
+        b.countInWindow - a.countInWindow ||
+        b.totalCount - a.totalCount
+    )[0];
     if (best) best.pinnedLabel ??= staple.label;
     else missingPinned.push(staple.label);
   }
@@ -275,6 +313,10 @@ export function analyzeOrders(
   for (const stats of all) {
     if (isOnlyWhenOnOffer(stats)) {
       onlyOnOffer.push(stats);
+    } else if (superseded.has(stats)) {
+      other.push(stats);
+    } else if (!stats.pinnedLabel && FORCE_DUE.some((re) => re.test(stats.name))) {
+      dueSoon.push(stats);
     } else if (isHousehold(stats)) {
       (isStandard(stats) || isDue(stats) ? household : other).push(stats);
     } else if (isStandard(stats)) {

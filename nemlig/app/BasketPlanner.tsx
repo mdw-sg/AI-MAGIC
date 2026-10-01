@@ -224,6 +224,7 @@ export default function BasketPlanner({
             mainGroup: p.mainGroup,
             quantity: sel(p).quantity,
             preferredProductId: p.offer?.productId ?? null,
+            pinnedLabel: p.pinnedLabel,
           })),
         }),
       });

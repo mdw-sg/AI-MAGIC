@@ -1,5 +1,5 @@
 import { connect, type NemligConnection } from "./client";
-import { isHousehold, isOrganic, productKey } from "./preferences";
+import { isHousehold, isOrganic, PINNED_STAPLES, preferenceRank, productKey } from "./preferences";
 
 const MAX_ITEMS = 150;
 const MAX_QUANTITY = 30;
@@ -14,6 +14,8 @@ export type BasketRequestItem = {
   quantity: number;
   /** Tilbudsvaren, der foretrækkes, hvis den er på lager. */
   preferredProductId?: string | null;
+  /** Fast standardvare — dens prioritering slås op her på serveren. */
+  pinnedLabel?: string | null;
 };
 
 export type BasketItemResult = {
@@ -108,8 +110,11 @@ async function resolveProduct(
   basket: RawBasket,
   item: BasketRequestItem
 ): Promise<{ product: RawProduct | null; note: string | null; status: BasketItemResult["status"] }> {
+  const staple = item.pinnedLabel
+    ? PINNED_STAPLES.find((s) => s.label === item.pinnedLabel)
+    : undefined;
   const params = new URLSearchParams({
-    query: item.name,
+    query: staple?.query ?? item.name,
     take: String(SEARCH_RESULTS),
     skip: "0",
     recipeCount: "0",
@@ -124,17 +129,35 @@ async function resolveProduct(
   const key = productKey(item.name);
   const candidates = (result.Products?.Products ?? []).filter(
     (p) =>
-      p.Id === item.productId || p.Id === item.preferredProductId || productKey(p.Name) === key
+      p.Id === item.productId ||
+      p.Id === item.preferredProductId ||
+      productKey(p.Name) === key ||
+      Boolean(staple?.match.test(p.Name))
   );
   if (candidates.length === 0) return { product: null, note: null, status: "notFound" };
 
   const available = candidates.filter(inStock);
-  // Tilbudsvaren er allerede tjekket mod øko-reglen, da tilbuddet blev fundet.
-  const preferred = available.find((p) => p.Id === item.preferredProductId);
-  if (preferred) return { product: preferred, note: "Tilbudsvaren", status: "added" };
   // Samme varenummer som sidst foretrækkes, når alt andet er lige.
   const rank = (a: RawProduct, b: RawProduct) =>
     Number(b.Id === item.productId) - Number(a.Id === item.productId);
+  // Tilbudsvaren er allerede tjekket mod øko-reglen, da tilbuddet blev fundet.
+  const preferred = available.find((p) => p.Id === item.preferredProductId);
+  if (preferred) return { product: preferred, note: "Tilbudsvaren", status: "added" };
+
+  // Brugerens egen prioritering går forud for øko/dansk-reglen.
+  if (staple?.prefer) {
+    const ranked = available
+      .map((p) => ({ p, rank: preferenceRank(staple, { name: p.Name, description: p.Description ?? "" }) }))
+      .filter((x) => x.rank < Infinity)
+      .sort((a, b) => a.rank - b.rank || rank(a.p, b.p));
+    if (ranked.length) {
+      return {
+        product: ranked[0].p,
+        note: ranked[0].rank > 0 ? "Dit førstevalg er udsolgt" : null,
+        status: "added",
+      };
+    }
+  }
 
   const organic = available.filter(productIsOrganic).sort(rank);
   if (organic.length) return { product: organic[0], note: null, status: "added" };

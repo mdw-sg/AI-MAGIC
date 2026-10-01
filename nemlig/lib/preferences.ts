@@ -2,18 +2,60 @@
 // matcher på varenavn, fordi nemlig ofte har flere varenumre for samme vare
 // (størrelser, øko/ikke-øko, sæsonvarianter).
 
-export type PinnedStaple = { label: string; match: RegExp };
+export type PinnedStaple = {
+  label: string;
+  /** Hvilke varenavne der tæller som denne vare. */
+  match: RegExp;
+  /**
+   * Brugerens egen prioritering, testet mod "navn beskrivelse". Går forud for
+   * øko/dansk-reglen: første mønster med en vare på lager vinder. Uden
+   * prioritering bruges den almindelige regel (øko, ellers dansk).
+   */
+  prefer?: RegExp[];
+  /** Søgeord hos nemlig, når prioriteringen dækker flere varenavne. */
+  query?: string;
+};
 
 /** Varer, der altid regnes som standardvarer, uanset hvor ofte de købes. */
 export const PINNED_STAPLES: PinnedStaple[] = [
-  { label: "Mælk", match: /^(sødmælk|letmælk|minimælk|skummetmælk|gårdmælk)/i },
+  {
+    label: "Mælk",
+    match: /^(sødmælk|letmælk|minimælk|skummetmælk|gårdmælk)/i,
+    prefer: [/naturmælk/i, /^sødmælk 25% jersey/i],
+    query: "sødmælk",
+  },
   { label: "Broccoli", match: /^broccoli/i },
   { label: "Forårsløg", match: /^forårsløg/i },
   { label: "Ost", match: /ost.* i skiver|^ost i skiver/i },
   { label: "Iceberg salat", match: /^iceberg/i },
   { label: "Blomkål", match: /^blomkål/i },
   { label: "Snackpeber", match: /^snackpeber/i },
+  { label: "Bananer", match: /^bananer små/i },
+  {
+    label: "Agurk",
+    match: /^agurk( |$)/i,
+    prefer: [/^agurk dansk/i, /^agurk øko/i],
+    query: "agurk",
+  },
+  { label: "Hasselnødder", match: /^hasselnødder/i, prefer: [/nordthy/i], query: "hasselnødder" },
+  { label: "Babyspinat", match: /^babyspinat/i },
+  { label: "Salattern", match: /^salattern/i },
+  { label: "Løg", match: /^løg( |$)/i },
+  { label: "Kokosmel", match: /^kokosmel/i, query: "kokosmel" },
 ];
+
+/** Varer, der altid står under "Snart tid igen" i stedet for at blive standard. */
+export const FORCE_DUE: RegExp[] = [/^brun farin/i];
+
+/** Placering i brugerens prioritering (0 = førstevalg), eller Infinity. */
+export function preferenceRank(
+  staple: PinnedStaple,
+  product: { name: string; description: string }
+): number {
+  const text = `${product.name} ${product.description}`;
+  const index = (staple.prefer ?? []).findIndex((re) => re.test(text));
+  return index === -1 ? Infinity : index;
+}
 
 const CANDY_NAME =
   /slik|vingummi|lakrids|chokolade|bolsje|skumfidus|guldbamse|click mix|stjerne mix|favorit mix|familieguf|\bsour\b/i;
