@@ -41,11 +41,23 @@ export const PINNED_STAPLES: PinnedStaple[] = [
   { label: "Babyspinat", match: /^babyspinat/i },
   { label: "Salattern", match: /^salattern/i },
   { label: "Løg", match: /^løg( |$)/i },
-  { label: "Kokosmel", match: /^kokosmel/i, query: "kokosmel" },
+  // Øko først; ellers First Price-udgaven, som er den, der oftest er købt.
+  {
+    label: "Kokosmel",
+    match: /^kokosmel/i,
+    prefer: [/^kokosmel.*øko/i, /first price/i],
+    query: "kokosmel",
+  },
 ];
 
 /** Varer, der altid står under "Snart tid igen" i stedet for at blive standard. */
-export const FORCE_DUE: RegExp[] = [/^brun farin/i];
+export const FORCE_DUE: RegExp[] = [
+  /^brun farin/i,
+  /^kiwi/i,
+  /^tortilla/i,
+  /^spaghetti øko/i,
+  /champignon/i,
+];
 
 /** Placering i brugerens prioritering (0 = førstevalg), eller Infinity. */
 export function preferenceRank(
