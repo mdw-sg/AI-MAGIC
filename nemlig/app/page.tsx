@@ -1,6 +1,7 @@
 import { analyzeOrders } from "@/lib/analysis";
 import { getOfferCache } from "@/lib/offers";
 import { getOrderCache } from "@/lib/orders";
+import { getStockCache } from "@/lib/stock";
 import { getSuggestionCache } from "@/lib/suggestions";
 import { getSession } from "@/lib/session";
 import ActionButton from "./ActionButton";
@@ -40,7 +41,7 @@ export default function NemligPage() {
                   endpoint="/api/sync"
                   label="Opdater ordrer og tilbud"
                   loadingLabel="Henter…"
-                  hint="Henter nye ordrer og ugens tilbud. Første gang hentes op til 40 ordrer — det tager lidt tid."
+                  hint="Henter nye ordrer og ugens tilbud og tjekker, om dine varer er på lager. Det tager omkring et minut."
                 />
                 <ActionButton
                   endpoint="/api/basket/clear"
@@ -87,7 +88,11 @@ export default function NemligPage() {
                 {analysis.missingPinned.join(", ")}.
               </p>
             )}
-            <BasketPlanner analysis={analysis} suggestions={getSuggestionCache()} />
+            <BasketPlanner
+              analysis={analysis}
+              suggestions={getSuggestionCache()}
+              stock={getStockCache()}
+            />
           </>
         )}
       </main>

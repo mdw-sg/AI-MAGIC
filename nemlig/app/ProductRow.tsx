@@ -1,5 +1,6 @@
 import type { ProductStats } from "@/lib/analysis";
 import { isHousehold } from "@/lib/preferences";
+import type { StockStatus } from "@/lib/stock";
 
 const currency = new Intl.NumberFormat("da-DK", { style: "currency", currency: "DKK" });
 
@@ -12,6 +13,7 @@ export default function ProductRow({
   onQuantity,
   reason,
   onDismiss,
+  stock,
 }: {
   product: ProductStats;
   windowSize: number;
@@ -22,6 +24,8 @@ export default function ProductRow({
   /** AI'ens begrundelse for forslaget. */
   reason?: string;
   onDismiss?: () => void;
+  /** Resultatet af seneste lagertjek. */
+  stock?: StockStatus;
 }) {
   const interval = product.avgIntervalDays;
   // Øko/dansk er kun relevant for fødevarer, ikke fx opvasketabs.
@@ -40,8 +44,24 @@ export default function ProductRow({
         <p className="truncate text-xs text-zinc-600 dark:text-zinc-400">
           {product.description} · {currency.format(product.lastUnitPrice)}
         </p>
-        {(product.pinnedLabel || showOrigin || product.offer) && (
+        {(product.pinnedLabel || showOrigin || product.offer || (stock && stock.status !== "ok")) && (
           <div className="mt-1 flex flex-wrap gap-1">
+            {stock && (stock.status === "unavailable" || stock.status === "notFound") && (
+              <span
+                className="rounded bg-rose-600 px-1.5 py-0.5 text-[11px] font-medium text-white"
+                title={stock.note ?? undefined}
+              >
+                {stock.status === "notFound" ? "Findes ikke længere" : "Udsolgt"}
+              </span>
+            )}
+            {stock?.status === "substitute" && stock.chosenName && (
+              <span
+                className="rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-medium text-violet-800 dark:bg-violet-950 dark:text-violet-300"
+                title={stock.note ?? "Læg i kurv vælger denne udgave"}
+              >
+                Bliver: {stock.chosenName}
+              </span>
+            )}
             {product.offer && (
               <span
                 className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-medium text-rose-800 dark:bg-rose-950 dark:text-rose-300"

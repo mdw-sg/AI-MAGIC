@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Analysis, ProductStats } from "@/lib/analysis";
 import type { BasketItemResult } from "@/lib/basket";
+import { basketItemFor } from "@/lib/basketItem";
+import type { StockCache } from "@/lib/stock";
 import type { Suggestion, SuggestionCache } from "@/lib/suggestions";
 import ProductRow from "./ProductRow";
 
@@ -119,8 +121,17 @@ function buildTabs(analysis: Analysis, suggestions: SuggestionCache | null): Tab
   ];
 }
 
-function initialSelection(tabs: Tab[], standard: ProductStats[]): Selection {
-  const preselected = new Set(standard.map((p) => p.productId));
+function initialSelection(
+  tabs: Tab[],
+  standard: ProductStats[],
+  stock: StockCache | null
+): Selection {
+  // Standardvarer vælges på forhånd — undtagen dem, lagertjekket fandt udsolgt.
+  const unavailable = (id: string) =>
+    ["unavailable", "notFound"].includes(stock?.items[id]?.status ?? "");
+  const preselected = new Set(
+    standard.map((p) => p.productId).filter((id) => !unavailable(id))
+  );
   const selection: Selection = {};
   for (const tab of tabs) {
     for (const group of tab.groups) {
@@ -138,9 +149,11 @@ function initialSelection(tabs: Tab[], standard: ProductStats[]): Selection {
 export default function BasketPlanner({
   analysis,
   suggestions,
+  stock,
 }: {
   analysis: Analysis;
   suggestions: SuggestionCache | null;
+  stock: StockCache | null;
 }) {
   const router = useRouter();
   const tabs = useMemo(() => buildTabs(analysis, suggestions), [analysis, suggestions]);
@@ -150,7 +163,7 @@ export default function BasketPlanner({
   );
   const [activeTab, setActiveTab] = useState(tabs[0].id);
   const [selection, setSelection] = useState<Selection>(() =>
-    initialSelection(tabs, analysis.standard)
+    initialSelection(tabs, analysis.standard, stock)
   );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -218,14 +231,7 @@ export default function BasketPlanner({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: chosen.map((p) => ({
-            productId: p.productId,
-            name: p.name,
-            mainGroup: p.mainGroup,
-            quantity: sel(p).quantity,
-            preferredProductId: p.offer?.productId ?? null,
-            pinnedLabel: p.pinnedLabel,
-          })),
+          items: chosen.map((p) => basketItemFor(p, sel(p).quantity)),
         }),
       });
       const data = await res.json();
@@ -322,6 +328,7 @@ export default function BasketPlanner({
                     onToggle={() => toggle(p)}
                     onQuantity={(q) => setQuantity(p, q)}
                     reason={tab.isAi ? reasons.get(p.productId) : undefined}
+                    stock={stock?.items[p.productId]}
                     onDismiss={tab.isAi ? () => dismiss(p) : undefined}
                   />
                 ))}

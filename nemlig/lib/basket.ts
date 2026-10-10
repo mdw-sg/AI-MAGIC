@@ -1,3 +1,4 @@
+import type { BasketRequestItem } from "./basketItem";
 import { connect, type NemligConnection } from "./client";
 import { isHousehold, isOrganic, PINNED_STAPLES, preferenceRank, productKey } from "./preferences";
 
@@ -6,17 +7,7 @@ const MAX_QUANTITY = 30;
 const SEARCH_RESULTS = 15;
 const DELAY_BETWEEN_REQUESTS_MS = 250;
 
-export type BasketRequestItem = {
-  /** Varenummer fra ordrehistorikken — kan være udgået hos nemlig. */
-  productId: string;
-  name: string;
-  mainGroup: string;
-  quantity: number;
-  /** Tilbudsvaren, der foretrækkes, hvis den er på lager. */
-  preferredProductId?: string | null;
-  /** Fast standardvare — dens prioritering slås op her på serveren. */
-  pinnedLabel?: string | null;
-};
+export type { BasketRequestItem };
 
 export type BasketItemResult = {
   requestedName: string;
@@ -37,7 +28,7 @@ export type BasketItemResult = {
 
 // Kun de felter, vi bruger. Kurvens svar indeholder også faktura- og
 // leveringsadresse; de læses aldrig ind og sendes aldrig videre.
-type RawBasket = {
+export type RawBasket = {
   TimeslotUtc?: string;
   DeliveryZoneId?: number;
   DeliveryTimeSlot?: { Id?: string | number } | null;
@@ -64,7 +55,7 @@ type RawProduct = {
   } | null;
 };
 
-function sleep(ms: number) {
+export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -105,7 +96,7 @@ function basketQuantities(basket: RawBasket): Map<string, number> {
  * ellers dansk på lager. Varer, der i forvejen ikke var øko (fx gær eller
  * husholdningsvarer), tages som den bedste udgave på lager.
  */
-async function resolveProduct(
+export async function resolveProduct(
   nemlig: NemligConnection,
   basket: RawBasket,
   item: BasketRequestItem
@@ -127,13 +118,26 @@ async function resolveProduct(
     nemlig.searchOrigin
   );
   const key = productKey(item.name);
-  const candidates = (result.Products?.Products ?? []).filter(
+  const results = result.Products?.Products ?? [];
+  let candidates = results.filter(
     (p) =>
       p.Id === item.productId ||
       p.Id === item.preferredProductId ||
       productKey(p.Name) === key ||
       Boolean(staple?.match.test(p.Name))
   );
+  let renamed = false;
+  if (candidates.length === 0) {
+    // Nemlig omdøber varer (fx "Kiwi øko." → "Kiwi grønne øko."). Uden et
+    // præcist match accepteres varer, hvis navn starter med samme ord og
+    // indeholder alle ordene fra det gamle navn.
+    const words = key.split(" ");
+    candidates = results.filter((p) => {
+      const other = productKey(p.Name).split(" ");
+      return other[0] === words[0] && words.every((w) => other.includes(w));
+    });
+    renamed = candidates.length > 0;
+  }
   if (candidates.length === 0) return { product: null, note: null, status: "notFound" };
 
   const available = candidates.filter(inStock);
@@ -160,7 +164,9 @@ async function resolveProduct(
   }
 
   const organic = available.filter(productIsOrganic).sort(rank);
-  if (organic.length) return { product: organic[0], note: null, status: "added" };
+  if (organic.length) {
+    return { product: organic[0], note: renamed ? "Varen har fået nyt navn hos nemlig" : null, status: "added" };
+  }
 
   const wantedOrganic = isOrganic(item.name) || candidates.some(productIsOrganic);
   const danish = available.filter(productIsDanish).sort(rank);
