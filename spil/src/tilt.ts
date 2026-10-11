@@ -20,6 +20,7 @@ export class Tilt {
   invert = readInvert()
   /** Outcome of `enable()`, shown in the debug readout. */
   status = 'ikke startet'
+  private listening = false
 
   /**
    * Must be called synchronously from a `click` handler. iOS only grants the permission
@@ -27,6 +28,7 @@ export class Tilt {
    * is rejected silently.
    */
   async enable(): Promise<boolean> {
+    if (this.listening) return true
     if (!('DeviceMotionEvent' in globalThis)) {
       this.status = 'ikke understøttet'
       return false
@@ -45,6 +47,7 @@ export class Tilt {
       }
     }
     window.addEventListener('devicemotion', this.onMotion)
+    this.listening = true
     this.status = 'tilladt'
     return true
   }

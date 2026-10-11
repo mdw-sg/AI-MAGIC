@@ -41,8 +41,8 @@ Grundprincipper:
 
 | Fase | Indhold | Status |
 |---|---|---|
-| 0 | Opsætning af `spil/`, GitHub Pages, PWA og tilt-test på iPaden | Afventer test på iPad |
-| 1 | Racerspillet: kørsel, bane, 3 omgange, computerbiler, placering, pokal og turbo med ild og lyn | |
+| 0 | Opsætning af `spil/`, GitHub Pages, PWA og tilt-test på iPaden | ✅ |
+| 1 | Racerspillet: kørsel, bane, 3 omgange, computerbiler, placering, pokal og turbo med ild og lyn | Afventer test på iPad |
 | 2 | Lava med ramper og genstart, plus huller med underjordisk bane og hop | |
 | 3 | Turbo-porte med regning og bogstavjagt | |
 | 4 | Rytmespillet: grundspil, 3 sange, score og rekorder | |
@@ -57,5 +57,9 @@ Medbestemmelse (bil-designer, egen stemme, bane-editor) er udeladt for nu.
 - Hostes på GitHub Pages via `.github/workflows/spil-pages.yml` ved push til `main`:
   https://mdw-sg.github.io/AI-MAGIC/
 - Service worker (`public/sw.js`) gør spillet spilbart offline efter første indlæsning.
-- Tilt læses fra `devicemotion` (tyngdekraft omregnet til skærmens akse) — kræver https og et
-  tryk, før iPaden spørger om lov.
+- Tilt læses fra `devicemotion` som rattets drejning (tyngdekraftens vinkel i skærmplanet i
+  forhold til stillingen ved nedtællingen) — kræver https, og iPaden spørger kun om lov ved et
+  `click` (ikke `pointerdown`).
+- Racerspillet er klassisk pseudo-3D (vejsegmenter med kurve og højde): `src/race/track.ts`
+  bygger banen, `render.ts` tegner den, `race.ts` er løbet og HUD, `results.ts` podiet.
+  Pokaler gemmes i iPadens `localStorage`.
