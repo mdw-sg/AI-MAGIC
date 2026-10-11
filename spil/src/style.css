@@ -1,0 +1,39 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1b1640;
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#game {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Games are played in landscape; ask to rotate when held upright. */
+#rotate {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 30vmin;
+  color: #fff;
+  background: #1b1640;
+}
+
+@media (orientation: portrait) {
+  #rotate {
+    display: flex;
+  }
+}
