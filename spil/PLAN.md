@@ -22,8 +22,11 @@ Grundprincipper:
   også turbo.
 - **🌋 Lava og ramper:** blinkende pile på vejen viser op til en rampe, bilen flyver over
   lavaen. Misser man rampen: "puf!" og man starter igen lige foran pilene.
-- **🕳️ Huller:** bilen falder ned på en underjordisk jordbane; en rampe sender den højt op i
-  luften, og den lander på vejen igen. En belønning, ikke en fælde.
+- **🕳️ Huller:** bilen falder ned på en underjordisk jordbane (hurtigere end vejen, ca. 5 s); en
+  rampe sender den højt op i luften, og den lander på vejen igen. En belønning, ikke en fælde.
+  Computerbilerne kører tilfældigt med ned (ca. hver tredje gang).
+- **🪙 Guldmønter i tunnellen:** 15 mønter giver et 🛡️ skjold, der én gang redder bilen fra at
+  ryge ud på græsset; derefter starter tælleren forfra.
 - **Læring:**
   - *Turbo-porte:* et regnestykke vises og læses højt (først 🍎🍎🍎 + 🍎🍎, senere "3 + 2"); den
     rigtige port giver turbo. Sværhedsgrad: op til 5 → op til 10 → minus.

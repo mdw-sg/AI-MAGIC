@@ -59,6 +59,8 @@ export type View = {
   cave: boolean
   /** Seconds, for animating lava and arrows. */
   time: number
+  /** Whether a cave coin has already been picked up this lap. */
+  coinTaken?: (id: number) => boolean
 }
 
 export function renderWorld(ctx: Ctx, w: number, h: number, track: Track, view: View, cars: RenderCar[]) {
@@ -129,6 +131,9 @@ export function renderWorld(ctx: Ctx, w: number, h: number, track: Track, view: 
     for (const sprite of seg.sprites) {
       if (view.cave) drawCaveSprite(ctx, w, seg, sprite, view.time)
       else drawSprite(ctx, w, seg, sprite)
+    }
+    if (view.cave && seg.coins) {
+      for (const coin of seg.coins) if (!view.coinTaken?.(coin.id)) drawCoin(ctx, h, seg, coin.id, coin.x, view.time)
     }
     const segCars = carsBySeg.get(seg.index)
     if (segCars) {
@@ -362,6 +367,29 @@ function drawSprite(ctx: Ctx, w: number, seg: Segment, sprite: Sprite) {
       break
     }
   }
+}
+
+/** A spinning gold coin floating above the cave floor. */
+function drawCoin(ctx: Ctx, h: number, seg: Segment, id: number, cx: number, time: number) {
+  const p = seg.p1.screen
+  const unit = p.w / ROAD_WIDTH
+  const r = 170 * unit
+  if (r < 1) return
+  const x = p.x + cx * p.w
+  const y = p.y - p.scale * (300 + Math.sin(time * 4 + id) * 40) * (h / 2)
+  const rx = Math.max(r * 0.15, r * Math.abs(Math.cos(time * 4 + id * 0.7)))
+  ctx.fillStyle = '#b8860b'
+  ctx.beginPath()
+  ctx.ellipse(x, y, rx, r, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#ffd23f'
+  ctx.beginPath()
+  ctx.ellipse(x, y, rx * 0.8, r * 0.8, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'
+  ctx.beginPath()
+  ctx.ellipse(x - rx * 0.25, y - r * 0.3, rx * 0.18, r * 0.25, 0, 0, Math.PI * 2)
+  ctx.fill()
 }
 
 /** In the cave the scenery slots become glowing crystals, lanterns and dark rocks. */

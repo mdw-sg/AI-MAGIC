@@ -34,6 +34,9 @@ const CAVE_SPEED = MAX_SPEED * 1.25 // the cave is a reward: faster than the roa
 const CAVE_LAUNCH_VY = 8000 // the big leap out of the cave
 const RESPAWN_TIME = 0.9
 const FALL_TIME = 0.45
+const COINS_FOR_SHIELD = 15
+/** Chance that a computer car takes a hole when it passes one. */
+const AI_HOLE_CHANCE = 0.3
 
 const PLACE_WORDS = ['', 'et', 'to', 'tre', 'fire', 'fem', 'seks']
 
@@ -50,7 +53,15 @@ type Racer = {
   /** Set while driving up a ramp; leaving its top edge launches the car. */
   ramp: JumpKind | null
 }
-type Opponent = Racer & { baseSpeed: number; targetOffset: number; retarget: number }
+type Opponent = Racer & {
+  baseSpeed: number
+  targetOffset: number
+  retarget: number
+  /** Driving in the cave below the track. */
+  cave: boolean
+  /** Which hole (lap:start) the car last decided about, and whether it goes in. */
+  holePlan: { key: string; dive: boolean } | null
+}
 
 export type RaceResult = { place: number; order: CarColors[]; player: CarColors }
 export type RaceAction = 'restart' | 'menu' | null
@@ -115,6 +126,10 @@ export class Race {
   private respawnZone: LavaZone | null = null
   private blink = 0
   private flash = { color: '#000', a: 0 }
+  private coins = 0
+  private shield = false
+  private takenCoins = new Set<string>()
+  private coinPulse = 0
   private w = 0
   private h = 0
 
@@ -142,6 +157,8 @@ export class Race {
       baseSpeed: MAX_SPEED * g.speed * this.level.speed,
       targetOffset: g.o,
       retarget: 1 + Math.random() * 2,
+      cave: false,
+      holePlan: null,
     }))
   }
 
@@ -232,6 +249,7 @@ export class Race {
       this.updateOpponents(dt * slow)
     }
     this.flash.a = Math.max(0, this.flash.a - dt * 2.5)
+    this.coinPulse = Math.max(0, this.coinPulse - dt * 3)
     this.blink = Math.max(0, this.blink - dt)
 
     if (this.state === 'finished') {
@@ -269,6 +287,16 @@ export class Race {
     p.offset -= dx * speedPct * seg.curve * CENTRIFUGAL
     // The cave has walls; up top you can wander out onto the grass.
     p.offset = this.cave ? clamp(p.offset, -1, 1) : clamp(p.offset, -2.5, 2.5)
+    // The coin shield bounces the car back the first time it heads off the road.
+    if (this.shield && !this.cave && p.height <= 0 && !p.finished && Math.abs(p.offset) > 1.02) {
+      p.offset = Math.sign(p.offset) * 0.85
+      this.shield = false
+      this.coins = 0
+      this.coinPulse = 1
+      audio.boing()
+      const { x, y, s } = this.exhaust
+      for (let i = 0; i < 24; i++) this.particles.spark(x + Math.sign(p.offset) * s * 0.5, y - s * 0.2, s)
+    }
 
     const turbo = this.turboTime > 0
     if (turbo) this.turboTime = Math.max(0, this.turboTime - dt)
@@ -312,8 +340,9 @@ export class Race {
     }
 
     // Running into the back of a computer car slows you to its speed and nudges you aside.
-    if (!this.cave) {
+    {
       for (const o of this.opponents) {
+        if (o.cave !== (this.cave === 'in') || this.cave === 'falling') continue
         const dz = o.dist - p.dist
         const sameLevel = Math.abs(o.height - p.height) < 300
         if (sameLevel && dz > 0 && dz < 320 && Math.abs(o.offset - p.offset) < 0.33 && p.speed > o.speed) {
@@ -328,7 +357,9 @@ export class Race {
       }
     }
 
+    const fromSeg = Math.floor(this.z(p) / SEGMENT_LENGTH)
     p.dist += p.speed * dt
+    if (this.cave === 'in') this.collectCoins(fromSeg, Math.floor(this.z(p) / SEGMENT_LENGTH))
     this.skyOffset += (0.001 * seg.curve * p.speed * dt) / SEGMENT_LENGTH
     this.hillOffset += (0.002 * seg.curve * p.speed * dt) / SEGMENT_LENGTH
 
@@ -366,6 +397,30 @@ export class Race {
     if (s > 0) {
       if (this.turboTime > 0) for (const side of [-1, 1]) for (let i = 0; i < 2; i++) this.particles.flame(x + side * s * 0.28, y + s * 0.15, s)
       if (offroad && p.speed > 1000) for (const side of [-1, 1]) this.particles.dirt(x + side * s * 0.42, y + s * 0.08, s)
+    }
+  }
+
+  /** Picks up the cave coins the car passed over between two segments. */
+  private collectCoins(from: number, to: number) {
+    const p = this.player
+    const n = this.track.segments.length
+    for (let i = from; i !== (to + 1) % n; i = (i + 1) % n) {
+      for (const coin of this.track.segments[i].coins ?? []) {
+        const key = `${this.lap}:${coin.id}`
+        if (this.takenCoins.has(key) || Math.abs(p.offset - coin.x) > 0.25) continue
+        this.takenCoins.add(key)
+        audio.coin()
+        const { x, y, s } = this.exhaust
+        for (let k = 0; k < 6; k++) this.particles.spark(x, y - s * 0.4, s)
+        if (this.shield) continue
+        this.coins++
+        this.coinPulse = 1
+        if (this.coins >= COINS_FOR_SHIELD) {
+          this.shield = true
+          audio.ding()
+          setTimeout(() => audio.speak('Du har et skjold!'), 300)
+        }
+      }
     }
   }
 
@@ -466,6 +521,8 @@ export class Race {
       // Don't drive through the player or other cars: move aside and match their speed.
       for (const other of [p as Racer, ...this.opponents]) {
         if (other === o) continue
+        const otherCave = other === p ? this.cave === 'in' : (other as Opponent).cave
+        if (otherCave !== o.cave) continue
         const dz = other.dist - o.dist
         if (dz > 0 && dz < 6 * SEGMENT_LENGTH && Math.abs(other.offset - o.offset) < 0.45) {
           o.targetOffset = clamp(o.offset + (o.offset > other.offset ? 0.5 : -0.5), -0.8, 0.8)
@@ -481,13 +538,32 @@ export class Race {
         o.targetOffset = lava.x
         steerRate = 1.5
       }
+      // Holes: each car decides by chance whether to dive in, once per hole per lap.
       const hole = this.track.holes.find((hz) => zSeg >= hz.start - 40 && zSeg < hz.end)
-      if (hole && Math.abs(o.targetOffset - hole.x) < 0.5) o.targetOffset = hole.x > 0 ? hole.x - 0.8 : hole.x + 0.8
+      if (hole && !o.cave) {
+        const key = `${Math.floor(o.dist / L)}:${hole.start}`
+        if (o.holePlan?.key !== key) o.holePlan = { key, dive: Math.random() < AI_HOLE_CHANCE }
+        if (o.holePlan.dive) {
+          o.targetOffset = hole.x
+          steerRate = 1.5
+        } else if (Math.abs(o.targetOffset - hole.x) < 0.5) {
+          o.targetOffset = hole.x > 0 ? hole.x - 0.8 : hole.x + 0.8
+        }
+        const seg = this.track.findSegment(this.z(o))
+        if (o.holePlan.dive && seg.hole && Math.abs(o.offset - seg.hole.x) < seg.hole.halfW && o.height <= 0) {
+          o.cave = true
+        }
+      }
+      if (o.cave) {
+        target *= 1.25
+        o.targetOffset = clamp(o.targetOffset, -0.8, 0.8)
+      }
 
       if (o.speed < target) o.speed = Math.min(target, o.speed + ACCEL * 0.8 * dt)
       else if (o.height <= 0) o.speed = Math.max(target, o.speed - MAX_SPEED * dt)
       o.offset += clamp(o.targetOffset - o.offset, -steerRate * dt, steerRate * dt)
-      this.vertical(o, false, dt)
+      const wasRamp = o.ramp
+      if (this.vertical(o, o.cave, dt) === 'launch' && wasRamp === 'cave') o.cave = false
       o.dist += o.speed * dt
 
       if (!o.finished && o.dist >= LAPS * L) {
@@ -532,8 +608,13 @@ export class Race {
       cameraLift: lift,
       cave: this.cave === 'in',
       time: this.time,
+      coinTaken: (id: number) => this.takenCoins.has(`${this.lap}:${id}`),
     }
-    const cars = this.cave ? [] : this.opponents.map((o) => ({ z: this.z(o), offset: o.offset, height: o.height, colors: o.colors }))
+    const below = this.cave === 'in'
+    const cars =
+      this.cave === 'falling'
+        ? []
+        : this.opponents.filter((o) => o.cave === below).map((o) => ({ z: this.z(o), offset: o.offset, height: o.height, colors: o.colors }))
     renderWorld(ctx, w, h, this.track, view, cars)
 
     const s = playerCarSize(w)
@@ -553,7 +634,25 @@ export class Race {
     const hidden = this.respawnTimer > 0 || (this.blink > 0 && Math.floor(this.time * 10) % 2 === 0)
     // Nose up while climbing, down while falling.
     const pitch = airborne ? clamp(p.vy / 40000, -0.12, 0.12) : 0
+    // Golden bubble around the car while the coin shield is ready: glow behind, rim in front.
+    const bubble = this.shield && !hidden
+    const pulse = 1 + Math.sin(this.time * 5) * 0.04
+    const bubblePath = () => {
+      ctx.beginPath()
+      ctx.ellipse(w / 2, carY - s * 0.08, s * 0.68 * pulse, s * 0.4 * pulse, 0, 0, Math.PI * 2)
+    }
+    if (bubble) {
+      ctx.fillStyle = 'rgba(255, 210, 63, 0.22)'
+      bubblePath()
+      ctx.fill()
+    }
     if (!hidden) drawCar(ctx, w / 2, carY, s * (1 + pitch), this.steer * 0.08, p.colors, !airborne)
+    if (bubble) {
+      ctx.strokeStyle = 'rgba(255, 220, 90, 0.9)'
+      ctx.lineWidth = 4
+      bubblePath()
+      ctx.stroke()
+    }
     this.exhaust = { x: w / 2, y: carY + s * 0.1, s }
 
     if (this.turboTime > 0) for (const side of [-1, 1]) drawFlameJet(ctx, w / 2 + side * s * 0.28, carY + s * 0.1, s)
@@ -651,11 +750,37 @@ export class Race {
       ready ? Math.sin(now / 150) * 0.05 : 0,
     )
 
+    this.drawCoinMeter(ctx, w)
     drawIconButton(ctx, this.pauseButton, '⏸', 'rgba(0,0,0,0.35)')
     ctx.globalAlpha = 0.6
     drawIconButton(ctx, this.invertButton, '⇄', 'rgba(0,0,0,0.35)')
     drawIconButton(ctx, this.centerButton, '◎', 'rgba(0,0,0,0.35)')
     ctx.globalAlpha = 1
+  }
+
+  /** Coin icon with a bar filling towards the shield; the shield shows when earned. */
+  private drawCoinMeter(ctx: Ctx, w: number) {
+    const x = w - 390
+    const y = 50
+    const bw = 200
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'
+    roundRect(ctx, x, y - 14, bw, 28, 14)
+    const fill = this.shield ? 1 : this.coins / COINS_FOR_SHIELD
+    if (fill > 0) {
+      ctx.fillStyle = this.shield ? '#ffe680' : '#ffd23f'
+      roundRect(ctx, x + 3, y - 11, Math.max(22, (bw - 6) * fill), 22, 11)
+    }
+    const r = 24 * (1 + this.coinPulse * 0.25)
+    ctx.fillStyle = '#b8860b'
+    circle(ctx, x - 10, y, r)
+    ctx.fillStyle = '#ffd23f'
+    circle(ctx, x - 10, y, r * 0.8)
+    if (this.shield) {
+      ctx.font = `${Math.round(40 + Math.sin(this.time * 6) * 4)}px system-ui, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('🛡️', x + bw + 30, y + 2)
+    }
   }
 
   private drawCountdown(ctx: Ctx, w: number, h: number) {

@@ -109,6 +109,16 @@ export const audio = {
     audio.bump()
   },
 
+  coin() {
+    tone(988, 0.08, 'square', 0.1)
+    setTimeout(() => tone(1319, 0.25, 'square', 0.1), 70)
+  },
+
+  /** The shield bouncing the car back onto the road. */
+  boing() {
+    tone(180, 0.35, 'sine', 0.35, 620)
+  },
+
   /** Countdown beep: low for 3-2-1, high for go. */
   beep(go = false) {
     tone(go ? 880 : 440, go ? 0.6 : 0.25, 'square', 0.15)

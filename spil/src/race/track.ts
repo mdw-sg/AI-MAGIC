@@ -36,6 +36,8 @@ export type Segment = {
   cave?: boolean
   /** Full-width ramp at the end of the cave, heights at p1/p2. */
   caveRamp?: { h1: number; h2: number }
+  /** Gold coins floating in the cave (id is unique on the track). */
+  coins?: { id: number; x: number }[]
 }
 
 export type LavaZone = { arrowStart: number; rampStart: number; lavaStart: number; lavaEnd: number; x: number }
@@ -48,7 +50,7 @@ const RAMP_LEN = 12
 const LAVA_LEN = 40
 const HOLE_LEN = 5
 const HOLE_HALF_WIDTH = 0.34
-const CAVE_LEN = 230
+const CAVE_LEN = 360
 const CAVE_RAMP_LEN = 16
 
 export class Track {
@@ -141,9 +143,9 @@ export function buildTrack(): Track {
 
   // Two lava pools and two holes per lap, placed on calm stretches so a child can aim.
   addLava(track, calmFrom(segs, 330, ARROW_LEN + RAMP_LEN + LAVA_LEN), -0.45)
-  addHole(track, calmFrom(segs, 760, 60), 0.5)
-  addLava(track, calmFrom(segs, 1240, ARROW_LEN + RAMP_LEN + LAVA_LEN), 0.45)
-  addHole(track, calmFrom(segs, 1640, 60), -0.5)
+  addHole(track, calmFrom(segs, 720, 60), 0.5)
+  addLava(track, calmFrom(segs, 1300, ARROW_LEN + RAMP_LEN + LAVA_LEN), 0.45)
+  addHole(track, calmFrom(segs, 1620, 60), -0.5)
 
   decorate(track)
   return track
@@ -194,7 +196,24 @@ function addHole(track: Track, start: number, x: number) {
     const n = i - zone.rampStart
     segs[i].caveRamp = { h1: (RAMP_HEIGHT * n) / CAVE_RAMP_LEN, h2: (RAMP_HEIGHT * (n + 1)) / CAVE_RAMP_LEN }
   }
+  addCoins(track, zone)
   track.holes.push(zone)
+}
+
+/** Groups of five coins through the cave, in a line, a zigzag or a diagonal. */
+function addCoins(track: Track, zone: HoleZone) {
+  const segs = track.segments
+  const rand = mulberry32(zone.start)
+  let id = zone.start * 100
+  for (let g = zone.start + 30; g + 20 < zone.rampStart - 15; g += 38) {
+    const pattern = Math.floor(rand() * 3)
+    const lane = (Math.floor(rand() * 3) - 1) * 0.55
+    for (let k = 0; k < 5; k++) {
+      const x = pattern === 0 ? lane : pattern === 1 ? (k % 2 ? 0.35 : -0.35) : -0.6 + k * 0.3
+      const seg = segs[g + k * 4]
+      ;(seg.coins ??= []).push({ id: id++, x })
+    }
+  }
 }
 
 /** Roadside scenery, from a seeded random so the track looks the same every race. */
