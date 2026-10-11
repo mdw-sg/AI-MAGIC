@@ -31,7 +31,7 @@ const COUNTDOWN = 3
 const FINISH_DELAY = 4.5
 const GRAVITY = 12000
 const CAVE_SPEED = MAX_SPEED * 1.25 // the cave is a reward: faster than the road above
-const CAVE_LAUNCH_VY = 8000 // the big leap out of the cave
+const CAVE_LAUNCH_VY = 11000 // the big leap out of the cave
 const RESPAWN_TIME = 0.9
 const FALL_TIME = 0.45
 const COINS_FOR_SHIELD = 15
@@ -130,6 +130,8 @@ export class Race {
   private shield = false
   private takenCoins = new Set<string>()
   private coinPulse = 0
+  /** Seconds left of the wobble after hitting the swords. */
+  private wobble = 0
   private w = 0
   private h = 0
 
@@ -250,6 +252,7 @@ export class Race {
     }
     this.flash.a = Math.max(0, this.flash.a - dt * 2.5)
     this.coinPulse = Math.max(0, this.coinPulse - dt * 3)
+    this.wobble = Math.max(0, this.wobble - dt)
     this.blink = Math.max(0, this.blink - dt)
 
     if (this.state === 'finished') {
@@ -400,11 +403,20 @@ export class Race {
     }
   }
 
-  /** Picks up the cave coins the car passed over between two segments. */
+  /** Picks up the cave coins, and runs into the swords, between two segments. */
   private collectCoins(from: number, to: number) {
     const p = this.player
     const n = this.track.segments.length
     for (let i = from; i !== (to + 1) % n; i = (i + 1) % n) {
+      const blade = this.track.segments[i].blade
+      if (blade && this.wobble === 0 && Math.abs(p.offset - blade.x) < blade.reach) {
+        p.speed *= 0.3
+        this.wobble = 0.8
+        this.shake = Math.max(this.shake, 0.9)
+        audio.clang()
+        const { x, y, s } = this.exhaust
+        for (let k = 0; k < 20; k++) this.particles.spark(x, y - s * 0.3, s)
+      }
       for (const coin of this.track.segments[i].coins ?? []) {
         const key = `${this.lap}:${coin.id}`
         if (this.takenCoins.has(key) || Math.abs(p.offset - coin.x) > 0.25) continue
@@ -557,6 +569,16 @@ export class Race {
       if (o.cave) {
         target *= 1.25
         o.targetOffset = clamp(o.targetOffset, -0.8, 0.8)
+        // Steer round the spinning swords ahead.
+        const n = this.track.segments.length
+        for (let k = 0; k < 40; k++) {
+          const blade = this.track.segments[(Math.floor(zSeg) + k) % n].blade
+          if (blade) {
+            o.targetOffset = blade.x > 0 ? blade.x - 0.85 : blade.x + 0.85
+            steerRate = 1.5
+            break
+          }
+        }
       }
 
       if (o.speed < target) o.speed = Math.min(target, o.speed + ACCEL * 0.8 * dt)
@@ -599,7 +621,7 @@ export class Race {
     if (this.shake > 0) ctx.translate((Math.random() - 0.5) * 16 * this.shake, (Math.random() - 0.5) * 16 * this.shake)
 
     // The camera rises with the car on jumps (and sinks with it into a hole).
-    const lift = this.cave === 'falling' ? p.height * 0.9 : p.height * 0.55
+    const lift = this.cave === 'falling' ? p.height * 0.9 : p.height * (this.airKind === 'cave' ? 0.8 : 0.55)
     const view = {
       position: (((this.z(p) - PLAYER_Z) % L) + L) % L,
       playerX: p.offset,
@@ -646,7 +668,8 @@ export class Race {
       bubblePath()
       ctx.fill()
     }
-    if (!hidden) drawCar(ctx, w / 2, carY, s * (1 + pitch), this.steer * 0.08, p.colors, !airborne)
+    const lean = this.steer * 0.08 + Math.sin(this.wobble * 30) * this.wobble * 0.4
+    if (!hidden) drawCar(ctx, w / 2, carY, s * (1 + pitch), lean, p.colors, !airborne)
     if (bubble) {
       ctx.strokeStyle = 'rgba(255, 220, 90, 0.9)'
       ctx.lineWidth = 4

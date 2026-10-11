@@ -132,6 +132,7 @@ export function renderWorld(ctx: Ctx, w: number, h: number, track: Track, view: 
       if (view.cave) drawCaveSprite(ctx, w, seg, sprite, view.time)
       else drawSprite(ctx, w, seg, sprite)
     }
+    if (view.cave && seg.blade) drawBlades(ctx, h, seg, seg.blade.x, seg.blade.reach, view.time)
     if (view.cave && seg.coins) {
       for (const coin of seg.coins) if (!view.coinTaken?.(coin.id)) drawCoin(ctx, h, seg, coin.id, coin.x, view.time)
     }
@@ -367,6 +368,48 @@ function drawSprite(ctx: Ctx, w: number, seg: Segment, sprite: Sprite) {
       break
     }
   }
+}
+
+/** Four swords spinning on a post, like a windmill facing the driver. */
+function drawBlades(ctx: Ctx, h: number, seg: Segment, bx: number, reach: number, time: number) {
+  const p = seg.p1.screen
+  const unit = p.w / ROAD_WIDTH
+  if (unit <= 0) return
+  const x = p.x + bx * p.w
+  const hubY = p.y - p.scale * 950 * (h / 2)
+  const len = reach * p.w
+  ctx.fillStyle = '#e8384f'
+  ctx.fillRect(x - 160 * unit, p.y - 60 * unit, 320 * unit, 60 * unit)
+  ctx.fillStyle = '#3a3a44'
+  ctx.fillRect(x - 50 * unit, hubY, 100 * unit, p.y - hubY)
+  const spin = time * 4.5 + seg.index
+  for (let k = 0; k < 4; k++) {
+    const a = spin + (k * Math.PI) / 2
+    const cos = Math.cos(a)
+    const sin = Math.sin(a)
+    // Blade as a tapered quad from the hub outwards, with a gold cross-guard.
+    const along = (d: number, side: number) => [x + cos * d - sin * side, hubY + sin * d + cos * side] as const
+    const wb = 70 * unit
+    const [ax, ay] = along(len * 0.22, -wb)
+    const [bx2, by] = along(len * 0.22, wb)
+    const [tx, ty] = along(len, 0)
+    ctx.fillStyle = '#dfe4ec'
+    ctx.beginPath()
+    ctx.moveTo(ax, ay)
+    ctx.lineTo(tx, ty)
+    ctx.lineTo(bx2, by)
+    ctx.fill()
+    const [gx1, gy1] = along(len * 0.2, -wb * 2)
+    const [gx2, gy2] = along(len * 0.2, wb * 2)
+    ctx.strokeStyle = '#ffd23f'
+    ctx.lineWidth = Math.max(2, 45 * unit)
+    ctx.beginPath()
+    ctx.moveTo(gx1, gy1)
+    ctx.lineTo(gx2, gy2)
+    ctx.stroke()
+  }
+  ctx.fillStyle = '#ffd23f'
+  circle(ctx, x, hubY, 90 * unit)
 }
 
 /** A spinning gold coin floating above the cave floor. */

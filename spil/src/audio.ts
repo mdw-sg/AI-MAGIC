@@ -114,6 +114,13 @@ export const audio = {
     setTimeout(() => tone(1319, 0.25, 'square', 0.1), 70)
   },
 
+  /** Hitting the spinning swords: a metallic clang. */
+  clang() {
+    tone(1250, 0.4, 'square', 0.12)
+    tone(1870, 0.3, 'square', 0.08)
+    audio.bump()
+  },
+
   /** The shield bouncing the car back onto the road. */
   boing() {
     tone(180, 0.35, 'sine', 0.35, 620)

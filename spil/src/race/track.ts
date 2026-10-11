@@ -38,6 +38,8 @@ export type Segment = {
   caveRamp?: { h1: number; h2: number }
   /** Gold coins floating in the cave (id is unique on the track). */
   coins?: { id: number; x: number }[]
+  /** Spinning swords on a post in the cave, blocking x ± reach. */
+  blade?: { x: number; reach: number }
 }
 
 export type LavaZone = { arrowStart: number; rampStart: number; lavaStart: number; lavaEnd: number; x: number }
@@ -200,12 +202,18 @@ function addHole(track: Track, start: number, x: number) {
   track.holes.push(zone)
 }
 
-/** Groups of five coins through the cave, in a line, a zigzag or a diagonal. */
+/**
+ * Groups of five coins through the cave, in a line, a zigzag or a diagonal, and two
+ * spinning-sword posts in the gaps between groups (one on each side).
+ */
 function addCoins(track: Track, zone: HoleZone) {
   const segs = track.segments
   const rand = mulberry32(zone.start)
   let id = zone.start * 100
-  for (let g = zone.start + 30; g + 20 < zone.rampStart - 15; g += 38) {
+  let group = 0
+  for (let g = zone.start + 30; g + 20 < zone.rampStart - 15; g += 38, group++) {
+    if (group === 2) segs[g + 28].blade = { x: -0.42, reach: 0.45 }
+    if (group === 5) segs[g + 28].blade = { x: 0.42, reach: 0.45 }
     const pattern = Math.floor(rand() * 3)
     const lane = (Math.floor(rand() * 3) - 1) * 0.55
     for (let k = 0; k < 5; k++) {

@@ -25,6 +25,8 @@ Grundprincipper:
 - **🕳️ Huller:** bilen falder ned på en underjordisk jordbane (hurtigere end vejen, ca. 5 s); en
   rampe sender den højt op i luften, og den lander på vejen igen. En belønning, ikke en fælde.
   Computerbilerne kører tilfældigt med ned (ca. hver tredje gang).
+- **⚔️ Roterende sværd:** to forhindringer i hver tunnel (en i hver side), som man skal køre
+  uden om; rammer man dem, mister bilen det meste af farten og slingrer.
 - **🪙 Guldmønter i tunnellen:** 15 mønter giver et 🛡️ skjold, der én gang redder bilen fra at
   ryge ud på græsset; derefter starter tælleren forfra.
 - **Læring:**
