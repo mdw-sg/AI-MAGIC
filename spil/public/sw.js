@@ -1,6 +1,6 @@
 // Offline support: pages are fetched network-first (so updates arrive when online),
 // everything else cache-first (Vite's built assets have content hashes in their names).
-const CACHE = 'spil-v1'
+const CACHE = 'spil-v2'
 
 self.addEventListener('install', () => self.skipWaiting())
 
@@ -26,7 +26,13 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (req.mode === 'navigate') {
-    event.respondWith(fetch(req).then(put).catch(() => caches.match(req)))
+    // no-cache: revalidate with the server instead of trusting GitHub Pages' 10-minute
+    // max-age, so a new deploy shows up on the next launch.
+    event.respondWith(
+      fetch(req, { cache: 'no-cache' })
+        .then(put)
+        .catch(() => caches.match(req)),
+    )
   } else {
     event.respondWith(caches.match(req).then((hit) => hit || fetch(req).then(put)))
   }

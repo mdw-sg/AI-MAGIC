@@ -261,6 +261,11 @@ function drawStart(now: number) {
   ctx.lineTo(w / 2 - r * 0.32, h * 0.45 + r * 0.45)
   ctx.fill()
   drawCar(w / 2, h * 0.86, Math.min(w, h) * 0.22, 0)
+  ctx.font = '13px ui-monospace, monospace'
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillStyle = 'rgba(255,255,255,0.8)'
+  ctx.fillText(`version ${__BUILD__}`, w - 16, 24)
 }
 
 function drawDrive(now: number) {
@@ -340,6 +345,7 @@ function drawDrive(now: number) {
     : now - startedAt > 1500 ? `ingen sensordata — tilladelse: ${tilt.status}`
     : 'venter på sensor…'
   ctx.fillText(sensor, w - 16, 24)
+  ctx.fillText(`version ${__BUILD__}`, w - 16, 42)
 }
 
 function drawCar(x: number, y: number, s: number, lean: number) {
