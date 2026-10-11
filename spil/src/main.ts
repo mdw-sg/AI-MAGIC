@@ -137,8 +137,9 @@ function update(dt: number) {
   if (keys.left) steer = -1
   if (keys.right) steer = 1
 
-  carX += steer * dt * 1.6
-  carX = Math.max(-1, Math.min(1, carX))
+  // The car's place on the road follows the wheel directly (eased), so holding the wheel
+  // straight keeps the car still instead of it drifting off.
+  carX += (steer - carX) * Math.min(1, dt * 8)
 
   const speed = turbo > 0 ? 2.6 : 1
   scroll = (scroll + dt * speed * 1.4) % 1
@@ -341,7 +342,7 @@ function drawDrive(now: number) {
   ctx.textAlign = 'right'
   ctx.fillStyle = 'rgba(255,255,255,0.8)'
   const sensor =
-    tilt.supported ? `tilt ${tilt.raw.toFixed(2)}  styr ${tilt.steer.toFixed(2)}${tilt.invert ? '  (vendt)' : ''}`
+    tilt.supported ? `rat ${tilt.degrees.toFixed(0)}°  styr ${tilt.steer.toFixed(2)}${tilt.invert ? '  (vendt)' : ''}`
     : now - startedAt > 1500 ? `ingen sensordata — tilladelse: ${tilt.status}`
     : 'venter på sensor…'
   ctx.fillText(sensor, w - 16, 24)

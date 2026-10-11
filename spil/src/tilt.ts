@@ -1,16 +1,20 @@
-// Steering from device tilt. Uses gravity from `devicemotion`, rotated into the screen's
-// horizontal axis, so it works however the iPad is held in landscape — upright like a
-// steering wheel or flat on the lap.
+// Steering wheel from device tilt. The iPad is held upright like a wheel, so steering is the
+// rotation of gravity within the screen plane (atan2 of its x/y components) relative to the
+// pose at calibration. Being relative and using both axes, it doesn't care whether the iPad
+// is in portrait or either landscape, how far it leans back, or which sign convention the
+// browser uses for gravity (iOS and the spec differ by flipping both axes, which cancels out).
 
 type PermissionApi = { requestPermission?: () => Promise<'granted' | 'denied'> }
 
-const FULL_LOCK = 4 // m/s² of sideways gravity (≈ 25° tilt) gives full steering
-const DEADZONE = 0.06
-const INVERT_KEY = 'spil.tilt.invert'
+const FULL_LOCK = (30 * Math.PI) / 180 // turning the wheel 30° gives full steering
+const DEADZONE = (3 * Math.PI) / 180
+const MIN_IN_PLANE = 3 // m/s²; below this the iPad is too flat for the angle to mean anything
+// v2: the old setting belonged to the previous (wrong-axis) steering, so it starts fresh.
+const INVERT_KEY = 'spil.tilt.invert.v2'
 
 export class Tilt {
-  /** Gravity along the screen's x axis, m/s². */
-  raw = 0
+  /** Wheel angle in radians, unwrapped relative to `neutral`. */
+  angle = 0
   neutral = 0
   supported = false
   invert = readInvert()
@@ -46,7 +50,7 @@ export class Tilt {
   }
 
   calibrate() {
-    this.neutral = this.raw
+    this.neutral = this.angle
   }
 
   toggleInvert() {
@@ -58,28 +62,37 @@ export class Tilt {
     }
   }
 
+  /** Wheel turn from straight ahead, in degrees (positive = right). */
+  get degrees(): number {
+    return (this.turn() * 180) / Math.PI
+  }
+
   /** Steering in −1 (left) … 1 (right). */
   get steer(): number {
-    let v = (this.raw - this.neutral) / FULL_LOCK
-    if (this.invert) v = -v
-    if (Math.abs(v) < DEADZONE) return 0
+    const t = this.turn()
+    if (Math.abs(t) < DEADZONE) return 0
+    const v = (t - Math.sign(t) * DEADZONE) / (FULL_LOCK - DEADZONE)
     return Math.max(-1, Math.min(1, v))
+  }
+
+  private turn(): number {
+    // Turning the device clockwise rotates gravity counter-clockwise in device coordinates,
+    // so the angle decreases when steering right.
+    const t = -(this.angle - this.neutral)
+    return this.invert ? -t : t
   }
 
   private onMotion = (e: DeviceMotionEvent) => {
     const g = e.accelerationIncludingGravity
     if (!g || g.x == null || g.y == null) return
     this.supported = true
-    const a = (screenAngle() * Math.PI) / 180
-    const sx = g.x * Math.cos(a) + g.y * Math.sin(a)
-    // Light smoothing so the car doesn't jitter.
-    this.raw += (sx - this.raw) * 0.35
+    if (Math.hypot(g.x, g.y) < MIN_IN_PLANE) return
+    const a = Math.atan2(g.x, g.y)
+    // Unwrap so crossing ±180° doesn't make the angle jump, then smooth lightly.
+    let d = a - this.angle
+    d -= Math.round(d / (2 * Math.PI)) * 2 * Math.PI
+    this.angle += d * 0.5
   }
-}
-
-function screenAngle(): number {
-  if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle
-  return Number((window as unknown as { orientation?: number }).orientation ?? 0)
 }
 
 function readInvert(): boolean {
