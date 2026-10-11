@@ -14,19 +14,34 @@ export class Tilt {
   neutral = 0
   supported = false
   invert = readInvert()
+  /** Outcome of `enable()`, shown in the debug readout. */
+  status = 'ikke startet'
 
-  /** Must be called from a tap — iOS only shows the permission prompt on a user gesture. */
+  /**
+   * Must be called synchronously from a `click` handler. iOS only grants the permission
+   * prompt on a completed tap (touchend/click) — calling it from pointerdown or touchstart
+   * is rejected silently.
+   */
   async enable(): Promise<boolean> {
-    const api = (globalThis.DeviceMotionEvent as unknown as PermissionApi) ?? {}
+    if (!('DeviceMotionEvent' in globalThis)) {
+      this.status = 'ikke understøttet'
+      return false
+    }
+    const api = globalThis.DeviceMotionEvent as unknown as PermissionApi
     if (typeof api.requestPermission === 'function') {
       try {
-        if ((await api.requestPermission()) !== 'granted') return false
-      } catch {
+        const result = await api.requestPermission()
+        if (result !== 'granted') {
+          this.status = `afvist (${result})`
+          return false
+        }
+      } catch (err) {
+        this.status = `fejl: ${err instanceof Error ? err.message : String(err)}`
         return false
       }
     }
-    if (!('DeviceMotionEvent' in globalThis)) return false
     window.addEventListener('devicemotion', this.onMotion)
+    this.status = 'tilladt'
     return true
   }
 

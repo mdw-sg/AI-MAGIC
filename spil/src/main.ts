@@ -44,17 +44,22 @@ const hit = (b: Button, x: number, y: number) => Math.hypot(x - b.x, y - b.y) <=
 
 // ---- input ---------------------------------------------------------------
 
-canvas.addEventListener('pointerdown', async (e) => {
+// Starting uses `click`, not pointerdown: iOS only allows the motion-permission prompt and
+// audio unlock on a completed tap.
+canvas.addEventListener('click', async () => {
+  if (scene !== 'start') return
+  const permission = tilt.enable()
+  sound.unlock()
+  scene = 'drive'
+  startedAt = performance.now()
+  await permission
+  // Give the sensor a moment to report, then treat the current hold as straight ahead.
+  setTimeout(() => tilt.calibrate(), 300)
+})
+
+canvas.addEventListener('pointerdown', (e) => {
   const { clientX: x, clientY: y } = e
-  if (scene === 'start') {
-    sound.unlock()
-    await tilt.enable()
-    scene = 'drive'
-    startedAt = performance.now()
-    // Give the sensor a moment to report, then treat the current hold as straight ahead.
-    setTimeout(() => tilt.calibrate(), 300)
-    return
-  }
+  if (scene !== 'drive') return
   if (hit(buttons.turbo(), x, y)) fireTurbo()
   else if (hit(buttons.invert(), x, y)) tilt.toggleInvert()
   else if (hit(buttons.center(), x, y)) tilt.calibrate()
@@ -87,6 +92,7 @@ const sound = (() => {
     unlock() {
       if (ac) return
       ac = new AudioContext()
+      void ac.resume()
       const gain = ac.createGain()
       gain.gain.value = 0.05
       const filter = ac.createBiquadFilter()
@@ -331,7 +337,7 @@ function drawDrive(now: number) {
   ctx.fillStyle = 'rgba(255,255,255,0.8)'
   const sensor =
     tilt.supported ? `tilt ${tilt.raw.toFixed(2)}  styr ${tilt.steer.toFixed(2)}${tilt.invert ? '  (vendt)' : ''}`
-    : now - startedAt > 1500 ? 'ingen bevægelsessensor — brug ← →'
+    : now - startedAt > 1500 ? `ingen sensordata — tilladelse: ${tilt.status}`
     : 'venter på sensor…'
   ctx.fillText(sensor, w - 16, 24)
 }
