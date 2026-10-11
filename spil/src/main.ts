@@ -2,10 +2,10 @@
 // the trophy shelf (kept in the iPad's browser storage, never in the repo).
 import './style.css'
 import { audio } from './audio'
-import { Race, type RaceResult } from './race/race'
+import { MAX_LEVEL, MIN_LEVEL, Race, type RaceResult } from './race/race'
 import { Results } from './race/results'
 import { Tilt } from './tilt'
-import { MEDAL, drawPlayButton, drawTrophy, hitButton, type IconButton } from './ui'
+import { MEDAL, circle, drawPlayButton, drawTrophy, hitButton, type IconButton } from './ui'
 
 const canvas = document.getElementById('game') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
@@ -47,10 +47,35 @@ function addTrophy(place: number) {
   }
 }
 
+// ---- difficulty ----------------------------------------------------------
+
+const LEVEL_KEY = 'spil.racer.level'
+const LEVEL_COLORS = ['#2ecc71', '#a3d93b', '#f5c518', '#ff8c1a', '#e8384f']
+const LEVEL_WORDS = ['', 'et', 'to', 'tre', 'fire', 'fem']
+function loadLevel(): number {
+  try {
+    const v = Number(localStorage.getItem(LEVEL_KEY))
+    if (v >= MIN_LEVEL && v <= MAX_LEVEL) return v
+  } catch {
+    // Fall through to the default.
+  }
+  return 3
+}
+let level = loadLevel()
+function setLevel(next: number) {
+  level = next
+  try {
+    localStorage.setItem(LEVEL_KEY, String(level))
+  } catch {
+    // Not remembered, but used for this session.
+  }
+}
+const levelButton = (n: number): IconButton => ({ x: w / 2 + (n - 3) * 90, y: h * 0.78, r: 34 })
+
 // ---- scenes --------------------------------------------------------------
 
 let scene: 'menu' | 'race' | 'results' = 'menu'
-let race = new Race()
+let race = new Race(level)
 let results: Results | null = null
 let sceneChangedAt = 0
 const keys = { left: false, right: false }
@@ -63,7 +88,7 @@ function setScene(next: typeof scene) {
 }
 
 function startRace() {
-  race = new Race()
+  race = new Race(level)
   race.onFinish = finishRace
   race.start()
   setScene('race')
@@ -76,7 +101,7 @@ function finishRace(result: RaceResult) {
 }
 
 function goToMenu() {
-  race = new Race()
+  race = new Race(level)
   setScene('menu')
 }
 
@@ -91,6 +116,13 @@ canvas.addEventListener('click', (e) => {
     void tilt.enable()
     audio.unlock()
     startRace()
+  } else if (scene === 'menu') {
+    for (let n = MIN_LEVEL; n <= MAX_LEVEL; n++) {
+      if (!hitButton(levelButton(n), x, y)) continue
+      setLevel(n)
+      audio.unlock()
+      audio.speak(`Niveau ${LEVEL_WORDS[n]}`)
+    }
   } else if (scene === 'results' && results) {
     const action = results.click(x, y)
     if (action === 'again') startRace()
@@ -133,6 +165,31 @@ function drawMenu(now: number) {
   ctx.fillStyle = 'rgba(0,0,0,0.25)'
   ctx.fillRect(0, 0, w, h)
   drawPlayButton(ctx, playButton(), now)
+
+  // Difficulty 1–5 on a dark panel: the chosen one is bigger with a thick white ring.
+  const first = levelButton(MIN_LEVEL)
+  const lastB = levelButton(MAX_LEVEL)
+  ctx.fillStyle = 'rgba(20,20,40,0.55)'
+  ctx.beginPath()
+  ctx.roundRect(first.x - 70, first.y - 58, lastB.x - first.x + 140, 116, 58)
+  ctx.fill()
+  for (let n = MIN_LEVEL; n <= MAX_LEVEL; n++) {
+    const b = levelButton(n)
+    const chosen = n === level
+    const r = chosen ? b.r * 1.25 : b.r
+    ctx.fillStyle = LEVEL_COLORS[n - 1]
+    circle(ctx, b.x, b.y, r)
+    ctx.lineWidth = chosen ? 6 : 3
+    ctx.strokeStyle = '#fff'
+    ctx.beginPath()
+    ctx.arc(b.x, b.y, r, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.fillStyle = '#fff'
+    ctx.font = `bold ${Math.round(r * 1.1)}px system-ui, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(String(n), b.x, b.y + r * 0.06)
+  }
 
   // Trophy shelf
   const size = Math.min(90, h * 0.12)

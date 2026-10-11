@@ -14,8 +14,10 @@ Grundprincipper:
 
 - **Kørsel:** bilen set bagfra, pseudo-3D i retro-stil, vej med sving og bakker. Styres ved at
   vippe iPaden; bilen kører selv fremad.
-- **Løbet:** 3–5 computerbiler, 3 omgange, nedtælling 3-2-1-KØR, placering og pokal.
-- **🔥 Turbo med ild og lyn (fra start):** turbo-knap der lader op over tid. Ved brug sprøjter
+- **Løbet:** 5 computerbiler, 3 omgange, nedtælling 3-2-1-KØR, placering og pokal.
+- **Sværhedsgrad 1–5** vælges på menuen (5 er meget svært); computerbilernes fart og hvor meget
+  de venter på spilleren afhænger af niveauet.
+- **🔥 Turbo med ild og lyn (fra start):** turbo-knap der lader op på 10 sekunder. Ved brug sprøjter
   flammer og lyn ud af udstødningen, kameraet ryster, farten stiger. Senere giver regne-portene
   også turbo.
 - **🌋 Lava og ramper:** blinkende pile på vejen viser op til en rampe, bilen flyver over
@@ -42,7 +44,7 @@ Grundprincipper:
 | Fase | Indhold | Status |
 |---|---|---|
 | 0 | Opsætning af `spil/`, GitHub Pages, PWA og tilt-test på iPaden | ✅ |
-| 1 | Racerspillet: kørsel, bane, 3 omgange, computerbiler, placering, pokal og turbo med ild og lyn | Afventer test på iPad |
+| 1 | Racerspillet: kørsel, bane, 3 omgange, computerbiler, placering, pokal og turbo med ild og lyn, sværhedsgrad 1–5 | ✅ |
 | 2 | Lava med ramper og genstart, plus huller med underjordisk bane og hop | |
 | 3 | Turbo-porte med regning og bogstavjagt | |
 | 4 | Rytmespillet: grundspil, 3 sange, score og rekorder | |

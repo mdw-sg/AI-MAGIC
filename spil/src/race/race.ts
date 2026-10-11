@@ -26,7 +26,7 @@ const ACCEL = MAX_SPEED / 3
 const OFFROAD_LIMIT = MAX_SPEED / 3.5
 const CENTRIFUGAL = 0.15
 const TURBO_TIME = 2.5
-const TURBO_CHARGE_TIME = 7
+const TURBO_CHARGE_TIME = 10
 const COUNTDOWN = 3
 const FINISH_DELAY = 4.5
 
@@ -37,6 +37,23 @@ type Opponent = Racer & { baseSpeed: number; targetOffset: number; retarget: num
 
 export type RaceResult = { place: number; order: CarColors[]; player: CarColors }
 export type RaceAction = 'restart' | 'menu' | null
+
+export const MIN_LEVEL = 1
+export const MAX_LEVEL = 5
+
+/**
+ * Difficulty levels 1–5. `speed` scales the computer cars' top speed; `ahead` is how much they
+ * ease off when far / a bit in front of the player, `behind` how much they push when far / a
+ * bit behind. Level 2 is the original tuning (which turned out a little too easy); at level 5
+ * the fastest car beats the player's top speed and only clean driving plus turbo wins.
+ */
+const LEVELS: Record<number, { speed: number; ahead: [number, number]; behind: [number, number] }> = {
+  1: { speed: 0.9, ahead: [0.85, 0.93], behind: [1.12, 1.05] },
+  2: { speed: 1.0, ahead: [0.88, 0.95], behind: [1.12, 1.05] },
+  3: { speed: 1.1, ahead: [0.94, 0.98], behind: [1.12, 1.06] },
+  4: { speed: 1.13, ahead: [0.98, 1], behind: [1.14, 1.07] },
+  5: { speed: 1.17, ahead: [1, 1], behind: [1.16, 1.08] },
+}
 
 // Grid slots in segments behind the line; the player starts at the back to have cars to chase.
 const GRID = [
@@ -55,6 +72,7 @@ export class Race {
   onFinish?: (result: RaceResult) => void
 
   private readonly lineZ = START_SEGMENT * SEGMENT_LENGTH
+  private readonly level: (typeof LEVELS)[number]
   private player: Racer
   private opponents: Opponent[]
   private finishOrder: Racer[] = []
@@ -75,7 +93,8 @@ export class Race {
   private w = 0
   private h = 0
 
-  constructor() {
+  constructor(level: number) {
+    this.level = LEVELS[Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, Math.round(level)))]
     this.player = {
       colors: CAR_COLORS[0],
       dist: PLAYER_SLOT.d * SEGMENT_LENGTH,
@@ -89,7 +108,7 @@ export class Race {
       offset: g.o,
       speed: 0,
       finished: false,
-      baseSpeed: MAX_SPEED * g.speed,
+      baseSpeed: MAX_SPEED * g.speed * this.level.speed,
       targetOffset: g.o,
       retarget: 1 + Math.random() * 2,
     }))
@@ -268,7 +287,8 @@ export class Race {
       // Rubber band: computer cars ease off when far ahead and push when far behind,
       // so the race stays close and exciting.
       const gap = (o.dist - p.dist) / SEGMENT_LENGTH
-      const factor = p.finished ? 1 : gap > 40 ? 0.88 : gap > 15 ? 0.95 : gap < -60 ? 1.12 : gap < -25 ? 1.05 : 1
+      const { ahead, behind } = this.level
+      const factor = p.finished ? 1 : gap > 40 ? ahead[0] : gap > 15 ? ahead[1] : gap < -60 ? behind[0] : gap < -25 ? behind[1] : 1
       let target = o.baseSpeed * factor
 
       o.retarget -= dt
