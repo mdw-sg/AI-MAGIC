@@ -45,7 +45,7 @@ Grundprincipper:
 |---|---|---|
 | 0 | Opsætning af `spil/`, GitHub Pages, PWA og tilt-test på iPaden | ✅ |
 | 1 | Racerspillet: kørsel, bane, 3 omgange, computerbiler, placering, pokal og turbo med ild og lyn, sværhedsgrad 1–5 | ✅ |
-| 2 | Lava med ramper og genstart, plus huller med underjordisk bane og hop | |
+| 2 | Lava med ramper og genstart, plus huller med underjordisk bane og hop | Afventer test på iPad |
 | 3 | Turbo-porte med regning og bogstavjagt | |
 | 4 | Rytmespillet: grundspil, 3 sange, score og rekorder | |
 | 5 | Bogstav-Rock i rytmespillet | |
@@ -65,3 +65,6 @@ Medbestemmelse (bil-designer, egen stemme, bane-editor) er udeladt for nu.
 - Racerspillet er klassisk pseudo-3D (vejsegmenter med kurve og højde): `src/race/track.ts`
   bygger banen, `render.ts` tegner den, `race.ts` er løbet og HUD, `results.ts` podiet.
   Pokaler gemmes i iPadens `localStorage`.
+- Lava, ramper, pile, huller og hulen er felter på vejsegmenterne (`track.ts`: `addLava`,
+  `addHole`); `race.ts` står for hop (`vertical`), "puf" og genstart (`die`/`respawn`) og hulen.
+  Afhoppet fra en rampe beregnes, så bilen altid klarer lavaen, når den rammer rampen.

@@ -24,10 +24,37 @@ export type Segment = {
   dark: boolean
   checker: boolean
   sprites: Sprite[]
+  /** Lava pool across the whole road. */
+  lava?: boolean
+  /** Part of a jump ramp in front of lava: lateral centre/half-width and height at p1/p2. */
+  ramp?: { x: number; halfW: number; h1: number; h2: number }
+  /** Blinking chevron leading to a ramp; n counts along the arrow run for the chase-light. */
+  arrow?: { x: number; n: number }
+  /** Hole in the road that drops you into the cave below. */
+  hole?: { x: number; halfW: number }
+  /** Below ground, this segment is part of the cave (others show as daylight ahead). */
+  cave?: boolean
+  /** Full-width ramp at the end of the cave, heights at p1/p2. */
+  caveRamp?: { h1: number; h2: number }
 }
+
+export type LavaZone = { arrowStart: number; rampStart: number; lavaStart: number; lavaEnd: number; x: number }
+export type HoleZone = { start: number; end: number; x: number; rampStart: number; exit: number }
+
+// Feature sizes, in segments (one segment is 1/60 s at full speed).
+export const RAMP_HEIGHT = 700
+const ARROW_LEN = 44
+const RAMP_LEN = 12
+const LAVA_LEN = 40
+const HOLE_LEN = 5
+const HOLE_HALF_WIDTH = 0.34
+const CAVE_LEN = 230
+const CAVE_RAMP_LEN = 16
 
 export class Track {
   segments: Segment[] = []
+  lavas: LavaZone[] = []
+  holes: HoleZone[] = []
 
   get length(): number {
     return this.segments.length * SEGMENT_LENGTH
@@ -112,8 +139,62 @@ export function buildTrack(): Track {
   segs[START_SEGMENT + 1].checker = true
   segs[START_SEGMENT].sprites.push({ kind: 'arch', offset: 0, variant: 0 })
 
+  // Two lava pools and two holes per lap, placed on calm stretches so a child can aim.
+  addLava(track, calmFrom(segs, 330, ARROW_LEN + RAMP_LEN + LAVA_LEN), -0.45)
+  addHole(track, calmFrom(segs, 760, 60), 0.5)
+  addLava(track, calmFrom(segs, 1240, ARROW_LEN + RAMP_LEN + LAVA_LEN), 0.45)
+  addHole(track, calmFrom(segs, 1640, 60), -0.5)
+
   decorate(track)
   return track
+}
+
+function calmFrom(segs: Segment[], from: number, len: number): number {
+  for (let i = from; i < segs.length - len; i++) {
+    let calm = true
+    for (let j = i; j < i + len && calm; j++) calm = Math.abs(segs[j].curve) <= CURVE.EASY + 0.5
+    if (calm) return i
+  }
+  return from
+}
+
+function addLava(track: Track, start: number, x: number) {
+  const segs = track.segments
+  const zone: LavaZone = {
+    arrowStart: start,
+    rampStart: start + ARROW_LEN,
+    lavaStart: start + ARROW_LEN + RAMP_LEN,
+    lavaEnd: start + ARROW_LEN + RAMP_LEN + LAVA_LEN,
+    x,
+  }
+  for (let i = zone.arrowStart; i < zone.rampStart; i++) segs[i].arrow = { x, n: i - zone.arrowStart }
+  for (let i = zone.rampStart; i < zone.lavaStart; i++) {
+    const n = i - zone.rampStart
+    segs[i].ramp = { x, halfW: 0.4, h1: (RAMP_HEIGHT * n) / RAMP_LEN, h2: (RAMP_HEIGHT * (n + 1)) / RAMP_LEN }
+  }
+  for (let i = zone.lavaStart; i < zone.lavaEnd; i++) {
+    segs[i].lava = true
+    segs[i].sprites = []
+  }
+  track.lavas.push(zone)
+}
+
+function addHole(track: Track, start: number, x: number) {
+  const segs = track.segments
+  const zone: HoleZone = {
+    start,
+    end: start + HOLE_LEN,
+    x,
+    rampStart: start + CAVE_LEN - CAVE_RAMP_LEN,
+    exit: start + CAVE_LEN,
+  }
+  for (let i = zone.start; i < zone.end; i++) segs[i].hole = { x, halfW: HOLE_HALF_WIDTH }
+  for (let i = zone.start; i < zone.exit; i++) segs[i].cave = true
+  for (let i = zone.rampStart; i < zone.exit; i++) {
+    const n = i - zone.rampStart
+    segs[i].caveRamp = { h1: (RAMP_HEIGHT * n) / CAVE_RAMP_LEN, h2: (RAMP_HEIGHT * (n + 1)) / CAVE_RAMP_LEN }
+  }
+  track.holes.push(zone)
 }
 
 /** Roadside scenery, from a seeded random so the track looks the same every race. */
@@ -122,6 +203,7 @@ function decorate(track: Track) {
   const segs = track.segments
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i]
+    if (s.lava) continue
     if (i % 4 === 0) {
       const side = rand() < 0.5 ? -1 : 1
       const r = rand()

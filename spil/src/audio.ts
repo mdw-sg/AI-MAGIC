@@ -78,6 +78,37 @@ export const audio = {
     src.start()
   },
 
+  /** Driving into lava: a soft "puf" of smoke. */
+  puff() {
+    if (!ac) return
+    const src = ac.createBufferSource()
+    src.buffer = noise(0.6)
+    const lp = ac.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.setValueAtTime(1200, ac.currentTime)
+    lp.frequency.exponentialRampToValueAtTime(200, ac.currentTime + 0.6)
+    const g = ac.createGain()
+    g.gain.value = 0.8
+    src.connect(lp).connect(g).connect(master)
+    src.start()
+    tone(300, 0.5, 'sine', 0.2, 80)
+  },
+
+  /** Rising whistle when taking off from a ramp. */
+  jump() {
+    tone(300, 0.5, 'triangle', 0.18, 900)
+  },
+
+  /** Falling whistle when dropping into a hole. */
+  fall() {
+    tone(1000, 0.6, 'triangle', 0.18, 150)
+  },
+
+  land() {
+    tone(90, 0.3, 'sine', 0.35, 45)
+    audio.bump()
+  },
+
   /** Countdown beep: low for 3-2-1, high for go. */
   beep(go = false) {
     tone(go ? 880 : 440, go ? 0.6 : 0.25, 'square', 0.15)

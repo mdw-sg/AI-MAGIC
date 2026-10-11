@@ -1,5 +1,6 @@
 // Pseudo-3D renderer: projects track segments from the camera, then paints road, scenery
-// and cars back to front so nearer hills naturally cover what lies behind them.
+// and cars back to front so nearer hills naturally cover what lies behind them. The same
+// track is drawn either in daylight or as the cave below it.
 import { drawCar, roundRect, circle, type CarColors, type Ctx } from '../ui'
 import { SEGMENT_LENGTH, type Point, type Segment, type Sprite, type Track } from './track'
 
@@ -13,7 +14,17 @@ export const PLAYER_Z = CAMERA_HEIGHT * CAMERA_DEPTH * 1.3
 export const CAR_WIDTH = 700
 const LANES = 3
 
-const COLORS = {
+type Palette = {
+  skyTop: string
+  skyBottom: string
+  fog: string
+  grass: [string, string]
+  rumble: [string, string]
+  road: [string, string]
+  lane: string | null
+}
+
+const DAY: Palette = {
   skyTop: '#3b6fd6',
   skyBottom: '#a8d8ff',
   fog: '#c4e2f5',
@@ -23,7 +34,17 @@ const COLORS = {
   lane: '#ffffff',
 }
 
-export type RenderCar = { z: number; offset: number; colors: CarColors }
+const CAVE: Palette = {
+  skyTop: '#0b0706',
+  skyBottom: '#2a1a12',
+  fog: '#140c08',
+  grass: ['#3a2a20', '#33251c'],
+  rumble: ['#5a3a22', '#4a2f1b'],
+  road: ['#8a5a32', '#7e5230'],
+  lane: null,
+}
+
+export type RenderCar = { z: number; offset: number; height: number; colors: CarColors }
 
 export type View = {
   /** Camera z (the player's car is PLAYER_Z ahead of it). */
@@ -32,10 +53,18 @@ export type View = {
   playerX: number
   skyOffset: number
   hillOffset: number
+  /** Extra camera height, so the view rises with the car on jumps. */
+  cameraLift: number
+  /** Draw the cave under the track instead of the daylight world. */
+  cave: boolean
+  /** Seconds, for animating lava and arrows. */
+  time: number
 }
 
 export function renderWorld(ctx: Ctx, w: number, h: number, track: Track, view: View, cars: RenderCar[]) {
-  drawBackground(ctx, w, h, view)
+  const pal = view.cave ? CAVE : DAY
+  if (view.cave) drawCaveBackground(ctx, w, h, view)
+  else drawBackground(ctx, w, h, view)
 
   const segs = track.segments
   const base = track.findSegment(view.position)
@@ -43,6 +72,7 @@ export function renderWorld(ctx: Ctx, w: number, h: number, track: Track, view: 
   const playerSeg = track.findSegment(view.position + PLAYER_Z)
   const playerPercent = ((view.position + PLAYER_Z) % SEGMENT_LENGTH) / SEGMENT_LENGTH
   const playerY = lerp(playerSeg.p1.world.y, playerSeg.p2.world.y, playerPercent)
+  const camY = playerY + CAMERA_HEIGHT + view.cameraLift
 
   // Bucket the cars by segment so they're drawn in depth order with the scenery.
   const carsBySeg = new Map<number, RenderCar[]>()
@@ -54,7 +84,7 @@ export function renderWorld(ctx: Ctx, w: number, h: number, track: Track, view: 
   }
 
   // Front-to-back pass: project and work out which road strips are visible.
-  type Visible = { seg: Segment; looped: boolean; drawRoad: boolean; fog: number }
+  type Visible = { seg: Segment; drawRoad: boolean; fog: number }
   const visible: Visible[] = []
   let maxY = h
   let x = 0
@@ -64,26 +94,47 @@ export function renderWorld(ctx: Ctx, w: number, h: number, track: Track, view: 
     const looped = seg.index < base.index
     const camZ = view.position - (looped ? track.length : 0)
     const camX = view.playerX * ROAD_WIDTH
-    project(seg.p1, camX - x, playerY + CAMERA_HEIGHT, camZ, w, h)
-    project(seg.p2, camX - x - dx, playerY + CAMERA_HEIGHT, camZ, w, h)
+    project(seg.p1, camX - x, camY, camZ, w, h)
+    project(seg.p2, camX - x - dx, camY, camZ, w, h)
     x += dx
     dx += seg.curve
     if (seg.p1.camera.z <= CAMERA_DEPTH) continue
     const drawRoad = seg.p2.screen.y < seg.p1.screen.y && seg.p2.screen.y < maxY
-    visible.push({ seg, looped, drawRoad, fog: fogAmount(n / DRAW_DISTANCE) })
+    const d = n / DRAW_DISTANCE
+    visible.push({ seg, drawRoad, fog: fogAmount(view.cave ? d * 2.2 : d) })
     if (drawRoad) maxY = seg.p1.screen.y
   }
 
-  // Back-to-front pass: road strip, then the scenery and cars standing on it.
+  // Back-to-front pass: road strip, then what stands on it.
   for (let i = visible.length - 1; i >= 0; i--) {
     const { seg, drawRoad, fog } = visible[i]
-    if (drawRoad) drawSegment(ctx, w, seg, fog)
-    for (const sprite of seg.sprites) drawSprite(ctx, w, seg, sprite)
+    if (view.cave && !seg.cave) {
+      // Beyond the cave's exit: daylight shining in.
+      if (drawRoad) {
+        ctx.fillStyle = '#fff3c4'
+        ctx.fillRect(0, seg.p2.screen.y, w, seg.p1.screen.y - seg.p2.screen.y + 1)
+      }
+      continue
+    }
+    if (drawRoad) {
+      if (seg.lava && !view.cave) drawLava(ctx, w, seg, view.time)
+      else drawSegment(ctx, w, seg, pal, fog)
+      if (!view.cave && seg.arrow && seg.arrow.n % 6 === 0) {
+        drawArrow(ctx, seg, segs[(seg.index + 3) % segs.length], seg.arrow.x, seg.arrow.n, view.time)
+      }
+      if (!view.cave && seg.hole) drawHole(ctx, seg, seg.hole.x, seg.hole.halfW, view.time)
+    }
+    if (!view.cave && seg.ramp) drawRamp(ctx, h, seg, seg.ramp.x, seg.ramp.halfW, seg.ramp.h1, seg.ramp.h2, false)
+    if (view.cave && seg.caveRamp) drawRamp(ctx, h, seg, 0, 1, seg.caveRamp.h1, seg.caveRamp.h2, true)
+    for (const sprite of seg.sprites) {
+      if (view.cave) drawCaveSprite(ctx, w, seg, sprite, view.time)
+      else drawSprite(ctx, w, seg, sprite)
+    }
     const segCars = carsBySeg.get(seg.index)
     if (segCars) {
       // Further-away cars first within the segment.
       segCars.sort((a, b) => b.z - a.z)
-      for (const car of segCars) drawRoadCar(ctx, w, seg, car)
+      for (const car of segCars) drawRoadCar(ctx, w, h, seg, car)
     }
   }
 }
@@ -94,6 +145,11 @@ export function playerGroundY(track: Track, view: View, h: number) {
   const t = ((view.position + PLAYER_Z) % SEGMENT_LENGTH) / SEGMENT_LENGTH
   const camY = lerp(seg.p1.camera.y, seg.p2.camera.y, t)
   return h / 2 - (CAMERA_DEPTH / PLAYER_Z) * camY * (h / 2)
+}
+
+/** Screen pixels per world unit at the player's depth (for heights and sizes). */
+export function playerScale(h: number) {
+  return (CAMERA_DEPTH / PLAYER_Z) * (h / 2)
 }
 
 export function playerCarSize(w: number) {
@@ -111,24 +167,24 @@ function project(p: Point, camX: number, camY: number, camZ: number, w: number, 
   p.screen.w = Math.round(scale * ROAD_WIDTH * (w / 2))
 }
 
-function drawSegment(ctx: Ctx, w: number, seg: Segment, fog: number) {
+function drawSegment(ctx: Ctx, w: number, seg: Segment, pal: Palette, fog: number) {
   const { x: x1, y: y1, w: w1 } = seg.p1.screen
   const { x: x2, y: y2, w: w2 } = seg.p2.screen
   const d = seg.dark ? 1 : 0
   const r1 = w1 / 6
   const r2 = w2 / 6
 
-  ctx.fillStyle = COLORS.grass[d]
+  ctx.fillStyle = pal.grass[d]
   ctx.fillRect(0, y2, w, y1 - y2 + 1)
 
-  ctx.fillStyle = COLORS.rumble[d]
+  ctx.fillStyle = pal.rumble[d]
   quad(ctx, x1 - w1 - r1, y1, x1 - w1, y1, x2 - w2, y2, x2 - w2 - r2, y2)
   quad(ctx, x1 + w1 + r1, y1, x1 + w1, y1, x2 + w2, y2, x2 + w2 + r2, y2)
 
-  ctx.fillStyle = COLORS.road[d]
+  ctx.fillStyle = pal.road[d]
   quad(ctx, x1 - w1, y1, x1 + w1, y1, x2 + w2, y2, x2 - w2, y2)
 
-  if (seg.checker) {
+  if (seg.checker && pal === DAY) {
     // Checkered start/finish line: two rows of black and white squares.
     const cols = 12
     for (let row = 0; row < 2; row++) {
@@ -145,10 +201,10 @@ function drawSegment(ctx: Ctx, w: number, seg: Segment, fog: number) {
         quad(ctx, xa + wa * fa, ya, xa + wa * fb, ya, xb + wb * fb, yb, xb + wb * fa, yb)
       }
     }
-  } else if (!seg.dark) {
+  } else if (!seg.dark && pal.lane) {
     const l1 = w1 / 40
     const l2 = w2 / 40
-    ctx.fillStyle = COLORS.lane
+    ctx.fillStyle = pal.lane
     for (let lane = 1; lane < LANES; lane++) {
       const f = -1 + (2 * lane) / LANES
       quad(ctx, x1 + w1 * f - l1, y1, x1 + w1 * f + l1, y1, x2 + w2 * f + l2, y2, x2 + w2 * f - l2, y2)
@@ -156,11 +212,90 @@ function drawSegment(ctx: Ctx, w: number, seg: Segment, fog: number) {
   }
 
   if (fog > 0.01) {
-    ctx.globalAlpha = fog
-    ctx.fillStyle = COLORS.fog
+    ctx.globalAlpha = Math.min(1, fog)
+    ctx.fillStyle = pal.fog
     ctx.fillRect(0, y2, w, y1 - y2 + 1)
     ctx.globalAlpha = 1
   }
+}
+
+/** A lava pool across the whole width, glowing and bubbling. */
+function drawLava(ctx: Ctx, w: number, seg: Segment, time: number) {
+  const { x: x1, y: y1, w: w1 } = seg.p1.screen
+  const { x: x2, y: y2, w: w2 } = seg.p2.screen
+  const glow = 0.5 + 0.5 * Math.sin(time * 5 + seg.index * 0.7)
+  ctx.fillStyle = seg.dark ? '#d9360c' : '#e8440f'
+  ctx.fillRect(0, y2, w, y1 - y2 + 1)
+  ctx.fillStyle = `rgb(255, ${Math.round(90 + glow * 60)}, 30)`
+  quad(ctx, x1 - w1 * 1.4, y1, x1 + w1 * 1.4, y1, x2 + w2 * 1.4, y2, x2 - w2 * 1.4, y2)
+  // Two bubbles per strip, at fixed spots that swell and pop.
+  for (let k = 0; k < 2; k++) {
+    const f = (((seg.index * 37 + k * 53) % 100) / 50 - 1) * 1.2
+    const r = w1 * 0.06 * Math.max(0, Math.sin(time * 3 + seg.index + k * 2))
+    if (r < 1) continue
+    ctx.fillStyle = '#ffd23f'
+    ctx.beginPath()
+    ctx.ellipse(x1 + w1 * f, (y1 + y2) / 2, r, r * 0.45, 0, 0, Math.PI * 2)
+    ctx.fill()
+  }
+}
+
+/** Yellow chevron painted on the road, part of a chase-light running towards the ramp. */
+function drawArrow(ctx: Ctx, near: Segment, far: Segment, ax: number, n: number, time: number) {
+  if (far.p2.camera.z <= CAMERA_DEPTH) return
+  const { x: x1, y: y1, w: w1 } = near.p1.screen
+  const { x: x2, y: y2, w: w2 } = far.p2.screen
+  if (y2 >= y1) return
+  const lit = (((Math.floor(n / 6) - Math.floor(time * 8)) % 4) + 4) % 4 === 0
+  const cx1 = x1 + w1 * ax
+  const cx2 = x2 + w2 * ax
+  const half = w1 * 0.26
+  ctx.strokeStyle = lit ? '#fff45c' : '#c9a82a'
+  ctx.lineWidth = Math.max(2, w1 * 0.07)
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(cx1 - half, y1)
+  ctx.lineTo(cx2, y2)
+  ctx.lineTo(cx1 + half, y1)
+  ctx.stroke()
+}
+
+/** Dark hole in the road with an earthy rim and a few twinkles to make it inviting. */
+function drawHole(ctx: Ctx, seg: Segment, hx: number, halfW: number, time: number) {
+  const { x: x1, y: y1, w: w1 } = seg.p1.screen
+  const { x: x2, y: y2, w: w2 } = seg.p2.screen
+  const rim = halfW * 1.25
+  ctx.fillStyle = '#6b4423'
+  quad(ctx, x1 + w1 * (hx - rim), y1, x1 + w1 * (hx + rim), y1, x2 + w2 * (hx + rim), y2, x2 + w2 * (hx - rim), y2)
+  ctx.fillStyle = '#120a06'
+  quad(ctx, x1 + w1 * (hx - halfW), y1, x1 + w1 * (hx + halfW), y1, x2 + w2 * (hx + halfW), y2, x2 + w2 * (hx - halfW), y2)
+  const tw = Math.sin(time * 6 + seg.index)
+  if (tw > 0.6) {
+    ctx.fillStyle = '#fff6a0'
+    circle(ctx, x1 + w1 * (hx + (seg.index % 3 - 1) * halfW * 0.5), (y1 + y2) / 2, Math.max(1.5, w1 * 0.02))
+  }
+}
+
+/**
+ * A ramp section on the road from height h1 (near) to h2 (far), between lateral offsets
+ * x ± halfW. Seen from behind we see its sides and the sloping top.
+ */
+function drawRamp(ctx: Ctx, h: number, seg: Segment, rx: number, halfW: number, h1: number, h2: number, wood: boolean) {
+  const p1 = seg.p1.screen
+  const p2 = seg.p2.screen
+  const xl1 = p1.x + p1.w * (rx - halfW)
+  const xr1 = p1.x + p1.w * (rx + halfW)
+  const xl2 = p2.x + p2.w * (rx - halfW)
+  const xr2 = p2.x + p2.w * (rx + halfW)
+  const yt1 = p1.y - p1.scale * h1 * (h / 2)
+  const yt2 = p2.y - p2.scale * h2 * (h / 2)
+  ctx.fillStyle = wood ? '#4a2f1b' : '#4a4a55'
+  quad(ctx, xl1, p1.y, xl2, p2.y, xl2, yt2, xl1, yt1)
+  quad(ctx, xr1, p1.y, xr2, p2.y, xr2, yt2, xr1, yt1)
+  if (wood) ctx.fillStyle = seg.index % 2 ? '#b07a40' : '#9a6834'
+  else ctx.fillStyle = seg.index % 2 ? '#ffd23f' : '#2a2a2a'
+  quad(ctx, xl1, yt1, xr1, yt1, xr2, yt2, xl2, yt2)
 }
 
 function drawSprite(ctx: Ctx, w: number, seg: Segment, sprite: Sprite) {
@@ -229,6 +364,54 @@ function drawSprite(ctx: Ctx, w: number, seg: Segment, sprite: Sprite) {
   }
 }
 
+/** In the cave the scenery slots become glowing crystals, lanterns and dark rocks. */
+function drawCaveSprite(ctx: Ctx, w: number, seg: Segment, sprite: Sprite, time: number) {
+  if (sprite.kind === 'arch') return
+  const p = seg.p1.screen
+  const unit = p.w / ROAD_WIDTH
+  // Pull the scenery in against the tunnel walls.
+  const x = p.x + Math.sign(sprite.offset) * Math.min(Math.abs(sprite.offset), 2) * p.w
+  const y = p.y
+  if (unit <= 0 || y < -50) return
+  const size = 900 * unit
+  if (x + size < 0 || x - size > w) return
+
+  if (sprite.kind === 'pine') {
+    // Lantern on a post
+    ctx.fillStyle = '#3a2a1a'
+    ctx.fillRect(x - size * 0.04, y - size * 1.1, size * 0.08, size * 1.1)
+    const flicker = 0.8 + 0.2 * Math.sin(time * 12 + seg.index)
+    ctx.fillStyle = `rgba(255, 200, 80, ${0.25 * flicker})`
+    circle(ctx, x, y - size * 1.15, size * 0.45)
+    ctx.fillStyle = '#ffd36b'
+    circle(ctx, x, y - size * 1.15, size * 0.12)
+  } else if (sprite.kind === 'tree' || sprite.kind === 'sign') {
+    // Crystal cluster
+    const hue = sprite.variant > 0.5 ? 190 : 285
+    const shine = 55 + 15 * Math.sin(time * 3 + seg.index)
+    for (const [dx, hgt, wd] of [
+      [-0.18, 0.7, 0.14],
+      [0, 1, 0.18],
+      [0.2, 0.6, 0.13],
+    ]) {
+      ctx.fillStyle = `hsl(${hue}, 85%, ${shine}%)`
+      ctx.beginPath()
+      ctx.moveTo(x + dx * size - wd * size, y)
+      ctx.lineTo(x + dx * size, y - hgt * size)
+      ctx.lineTo(x + dx * size + wd * size, y)
+      ctx.fill()
+    }
+  } else {
+    ctx.fillStyle = '#4a3a30'
+    ctx.beginPath()
+    ctx.moveTo(x - size * 0.5, y)
+    ctx.lineTo(x - size * 0.25, y - size * 0.5)
+    ctx.lineTo(x + size * 0.2, y - size * 0.6)
+    ctx.lineTo(x + size * 0.5, y)
+    ctx.fill()
+  }
+}
+
 /** Start/finish gantry spanning the road, with a checkered banner. */
 function drawArch(ctx: Ctx, seg: Segment) {
   const { x, y, w: rw } = seg.p1.screen
@@ -252,23 +435,30 @@ function drawArch(ctx: Ctx, seg: Segment) {
   }
 }
 
-function drawRoadCar(ctx: Ctx, w: number, seg: Segment, car: RenderCar) {
+function drawRoadCar(ctx: Ctx, w: number, h: number, seg: Segment, car: RenderCar) {
   const t = (car.z % SEGMENT_LENGTH) / SEGMENT_LENGTH
   const scale = lerp(seg.p1.screen.scale, seg.p2.screen.scale, t)
   const x = lerp(seg.p1.screen.x, seg.p2.screen.x, t) + scale * car.offset * ROAD_WIDTH * (w / 2)
   const y = lerp(seg.p1.screen.y, seg.p2.screen.y, t)
   const s = scale * CAR_WIDTH * (w / 2)
   if (s < 2 || x + s < 0 || x - s > w) return
-  drawCar(ctx, x, y - s * 0.18, s, 0, car.colors)
+  const lift = scale * car.height * (h / 2)
+  if (lift > 1) {
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'
+    ctx.beginPath()
+    ctx.ellipse(x, y, s * 0.45, s * 0.06, 0, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  drawCar(ctx, x, y - s * 0.18 - lift, s, 0, car.colors, lift <= 1)
 }
 
 function drawBackground(ctx: Ctx, w: number, h: number, view: View) {
   const sky = ctx.createLinearGradient(0, 0, 0, h / 2)
-  sky.addColorStop(0, COLORS.skyTop)
-  sky.addColorStop(1, COLORS.skyBottom)
+  sky.addColorStop(0, DAY.skyTop)
+  sky.addColorStop(1, DAY.skyBottom)
   ctx.fillStyle = sky
   ctx.fillRect(0, 0, w, h / 2 + 2)
-  ctx.fillStyle = COLORS.grass[0]
+  ctx.fillStyle = DAY.grass[0]
   ctx.fillRect(0, h / 2, w, h / 2)
 
   // Sun and clouds drift with the sky.
@@ -286,6 +476,28 @@ function drawBackground(ctx: Ctx, w: number, h: number, view: View) {
 
   ridge(ctx, w, h, view.skyOffset * 0.6, h * 0.12, '#7d9fcf', 0.004, 0.011)
   ridge(ctx, w, h, view.hillOffset, h * 0.06, '#3f9a4a', 0.007, 0.017)
+}
+
+/** Dark rock ceiling with stalactites drifting with the curves. */
+function drawCaveBackground(ctx: Ctx, w: number, h: number, view: View) {
+  const sky = ctx.createLinearGradient(0, 0, 0, h / 2)
+  sky.addColorStop(0, CAVE.skyTop)
+  sky.addColorStop(1, CAVE.skyBottom)
+  ctx.fillStyle = sky
+  ctx.fillRect(0, 0, w, h / 2 + 2)
+  ctx.fillStyle = CAVE.grass[0]
+  ctx.fillRect(0, h / 2, w, h / 2)
+  ctx.fillStyle = '#1e140f'
+  const shift = view.hillOffset * w
+  for (let i = -1; i < 14; i++) {
+    const x = ((((i * 97 - shift) % (w + 200)) + w + 200) % (w + 200)) - 100
+    const len = h * (0.08 + ((i * 53) % 7) * 0.025)
+    ctx.beginPath()
+    ctx.moveTo(x - 30, 0)
+    ctx.lineTo(x + 30, 0)
+    ctx.lineTo(x, len)
+    ctx.fill()
+  }
 }
 
 function ridge(ctx: Ctx, w: number, h: number, offset: number, height: number, color: string, f1: number, f2: number) {

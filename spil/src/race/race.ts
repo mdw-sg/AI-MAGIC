@@ -16,8 +16,8 @@ import {
   type Ctx,
   type IconButton,
 } from '../ui'
-import { PLAYER_Z, playerCarSize, playerGroundY, renderWorld } from './render'
-import { SEGMENT_LENGTH, START_SEGMENT, buildTrack } from './track'
+import { PLAYER_Z, lerp, playerCarSize, playerGroundY, playerScale, renderWorld } from './render'
+import { SEGMENT_LENGTH, START_SEGMENT, buildTrack, type LavaZone } from './track'
 
 export const LAPS = 3
 const MAX_SPEED = SEGMENT_LENGTH * 60 // one segment per frame at 60 fps
@@ -29,10 +29,27 @@ const TURBO_TIME = 2.5
 const TURBO_CHARGE_TIME = 10
 const COUNTDOWN = 3
 const FINISH_DELAY = 4.5
+const GRAVITY = 12000
+const CAVE_SPEED = MAX_SPEED * 1.25 // the cave is a reward: faster than the road above
+const CAVE_LAUNCH_VY = 8000 // the big leap out of the cave
+const RESPAWN_TIME = 0.9
+const FALL_TIME = 0.45
 
 const PLACE_WORDS = ['', 'et', 'to', 'tre', 'fire', 'fem', 'seks']
 
-type Racer = { colors: CarColors; dist: number; offset: number; speed: number; finished: boolean }
+type JumpKind = 'lava' | 'cave'
+type Racer = {
+  colors: CarColors
+  dist: number
+  offset: number
+  speed: number
+  finished: boolean
+  /** Height above the road (world units) and vertical speed, for ramps and jumps. */
+  height: number
+  vy: number
+  /** Set while driving up a ramp; leaving its top edge launches the car. */
+  ramp: JumpKind | null
+}
 type Opponent = Racer & { baseSpeed: number; targetOffset: number; retarget: number }
 
 export type RaceResult = { place: number; order: CarColors[]; player: CarColors }
@@ -90,6 +107,14 @@ export class Race {
   private time = 0
   private particles = new Particles()
   private exhaust = { x: 0, y: 0, s: 0 }
+  /** Below ground: dropping through a hole, or driving in the cave. */
+  private cave: 'falling' | 'in' | null = null
+  private fallTimer = 0
+  private airKind: JumpKind | null = null
+  private respawnTimer = 0
+  private respawnZone: LavaZone | null = null
+  private blink = 0
+  private flash = { color: '#000', a: 0 }
   private w = 0
   private h = 0
 
@@ -101,6 +126,9 @@ export class Race {
       offset: PLAYER_SLOT.o,
       speed: 0,
       finished: false,
+      height: 0,
+      vy: 0,
+      ramp: null,
     }
     this.opponents = GRID.map((g, i) => ({
       colors: CAR_COLORS[i + 1],
@@ -108,6 +136,9 @@ export class Race {
       offset: g.o,
       speed: 0,
       finished: false,
+      height: 0,
+      vy: 0,
+      ramp: null,
       baseSpeed: MAX_SPEED * g.speed * this.level.speed,
       targetOffset: g.o,
       retarget: 1 + Math.random() * 2,
@@ -193,11 +224,15 @@ export class Race {
       }
     }
     const moving = this.state === 'racing' || this.state === 'finished'
-    audio.engine(this.player.speed / MAX_SPEED, this.state !== 'grid')
+    audio.engine(this.player.speed / MAX_SPEED, this.state !== 'grid' && this.respawnTimer === 0)
     if (moving) {
-      this.updatePlayer(dt)
-      this.updateOpponents(dt)
+      // A little slow motion while flying over lava.
+      const slow = this.player.height > 0 && this.airKind === 'lava' ? 0.6 : 1
+      this.updatePlayer(dt * slow)
+      this.updateOpponents(dt * slow)
     }
+    this.flash.a = Math.max(0, this.flash.a - dt * 2.5)
+    this.blink = Math.max(0, this.blink - dt)
 
     if (this.state === 'finished') {
       this.finishTimer += dt
@@ -217,6 +252,13 @@ export class Race {
   private updatePlayer(dt: number) {
     const p = this.player
     const L = this.track.length
+
+    if (this.respawnTimer > 0) {
+      this.respawnTimer -= dt
+      if (this.respawnTimer <= 0) this.respawn()
+      return
+    }
+
     const seg = this.track.findSegment(this.z(p))
     const speedPct = p.speed / MAX_SPEED
 
@@ -225,28 +267,63 @@ export class Race {
     const dx = dt * 1.9 * Math.min(speedPct, 1.3)
     p.offset += dx * steer
     p.offset -= dx * speedPct * seg.curve * CENTRIFUGAL
-    p.offset = clamp(p.offset, -2.5, 2.5)
+    // The cave has walls; up top you can wander out onto the grass.
+    p.offset = this.cave ? clamp(p.offset, -1, 1) : clamp(p.offset, -2.5, 2.5)
 
     const turbo = this.turboTime > 0
     if (turbo) this.turboTime = Math.max(0, this.turboTime - dt)
     else if (this.state === 'racing') this.turboCharge = Math.min(1, this.turboCharge + dt / TURBO_CHARGE_TIME)
 
-    const offroad = Math.abs(p.offset) > 1.1
-    let target = p.finished ? MAX_SPEED * 0.5 : turbo ? TURBO_SPEED : MAX_SPEED
+    const offroad = !this.cave && p.height <= 0 && Math.abs(p.offset) > 1.1
+    let target = p.finished ? MAX_SPEED * 0.5 : turbo ? TURBO_SPEED : this.cave ? CAVE_SPEED : MAX_SPEED
     if (offroad) target = Math.min(target, turbo ? OFFROAD_LIMIT * 1.6 : OFFROAD_LIMIT)
     if (p.speed < target) p.speed = Math.min(target, p.speed + ACCEL * dt * (turbo ? 3 : 1))
-    else p.speed = Math.max(target, p.speed - MAX_SPEED * 0.8 * dt)
+    else if (p.height <= 0) p.speed = Math.max(target, p.speed - MAX_SPEED * 0.8 * dt)
+
+    if (this.cave === 'falling') {
+      this.fallTimer += dt
+      p.height = -9000 * this.fallTimer * this.fallTimer
+      this.flash = { color: '#000', a: Math.min(1, this.fallTimer / FALL_TIME) }
+      if (this.fallTimer >= FALL_TIME) {
+        this.cave = 'in'
+        p.height = 0
+        p.vy = 0
+        this.flash = { color: '#000', a: 1 }
+      }
+    } else {
+      const rampBefore = p.ramp
+      const event = this.vertical(p, this.cave === 'in', dt)
+      if (event === 'launch') {
+        this.airKind = rampBefore
+        audio.jump()
+        if (this.airKind === 'cave') {
+          this.cave = null
+          this.flash = { color: '#fff', a: 1 }
+          setTimeout(() => audio.speak('Juhu!'), 200)
+        }
+      } else if (event === 'land') {
+        this.airKind = null
+        audio.land()
+        this.shake = Math.max(this.shake, 0.8)
+        const { x, y, s } = this.exhaust
+        for (let i = 0; i < 12; i++) this.particles.dirt(x + (Math.random() - 0.5) * s, y + s * 0.08, s)
+      }
+      if (p.height <= 0 && p.vy === 0) this.airKind = null
+    }
 
     // Running into the back of a computer car slows you to its speed and nudges you aside.
-    for (const o of this.opponents) {
-      const dz = o.dist - p.dist
-      if (dz > 0 && dz < 320 && Math.abs(o.offset - p.offset) < 0.33 && p.speed > o.speed) {
-        p.speed = o.speed * 0.92
-        p.offset += (p.offset < o.offset ? -1 : 1) * 0.06
-        this.shake = Math.max(this.shake, 0.5)
-        if (this.bumpCooldown === 0) {
-          audio.bump()
-          this.bumpCooldown = 0.4
+    if (!this.cave) {
+      for (const o of this.opponents) {
+        const dz = o.dist - p.dist
+        const sameLevel = Math.abs(o.height - p.height) < 300
+        if (sameLevel && dz > 0 && dz < 320 && Math.abs(o.offset - p.offset) < 0.33 && p.speed > o.speed) {
+          p.speed = o.speed * 0.92
+          p.offset += (p.offset < o.offset ? -1 : 1) * 0.06
+          this.shake = Math.max(this.shake, 0.5)
+          if (this.bumpCooldown === 0) {
+            audio.bump()
+            this.bumpCooldown = 0.4
+          }
         }
       }
     }
@@ -254,6 +331,18 @@ export class Race {
     p.dist += p.speed * dt
     this.skyOffset += (0.001 * seg.curve * p.speed * dt) / SEGMENT_LENGTH
     this.hillOffset += (0.002 * seg.curve * p.speed * dt) / SEGMENT_LENGTH
+
+    // Hazards on the road surface (after the finish the car just rolls on).
+    const here = this.track.findSegment(this.z(p))
+    if (!this.cave && !p.finished && p.height <= 0) {
+      if (here.lava) return this.die()
+      if (here.hole && Math.abs(p.offset - here.hole.x) < here.hole.halfW) {
+        this.cave = 'falling'
+        this.fallTimer = 0
+        p.ramp = null
+        audio.fall()
+      }
+    }
 
     const lap = clamp(Math.floor(p.dist / L) + 1, 1, LAPS)
     if (lap > this.lap && !p.finished) {
@@ -278,6 +367,83 @@ export class Race {
       if (this.turboTime > 0) for (const side of [-1, 1]) for (let i = 0; i < 2; i++) this.particles.flame(x + side * s * 0.28, y + s * 0.15, s)
       if (offroad && p.speed > 1000) for (const side of [-1, 1]) this.particles.dirt(x + side * s * 0.42, y + s * 0.08, s)
     }
+  }
+
+  /** Height of whatever the car is driving on: a ramp, or the road (0). */
+  private ground(r: Racer, underground: boolean): { h: number; kind: JumpKind | null } {
+    const z = this.z(r)
+    const seg = this.track.findSegment(z)
+    const t = (z % SEGMENT_LENGTH) / SEGMENT_LENGTH
+    if (underground) return seg.caveRamp ? { h: lerp(seg.caveRamp.h1, seg.caveRamp.h2, t), kind: 'cave' } : { h: 0, kind: null }
+    if (seg.ramp && Math.abs(r.offset - seg.ramp.x) < seg.ramp.halfW + 0.06) {
+      return { h: lerp(seg.ramp.h1, seg.ramp.h2, t), kind: 'lava' }
+    }
+    return { h: 0, kind: null }
+  }
+
+  /** Ramps, take-off, flight and landing. Returns what happened this frame, if anything. */
+  private vertical(r: Racer, underground: boolean, dt: number): 'launch' | 'land' | null {
+    const g = this.ground(r, underground)
+    if (r.ramp && g.h === 0) {
+      const kind = r.ramp
+      r.ramp = null
+      r.vy = kind === 'cave' ? CAVE_LAUNCH_VY : this.lavaLaunchSpeed(r)
+      return 'launch'
+    }
+    if (r.height <= g.h + 1 && r.vy <= 0) {
+      r.height = g.h
+      r.vy = 0
+      r.ramp = g.h > 0 ? g.kind : null
+      return null
+    }
+    r.vy -= GRAVITY * dt
+    r.height += r.vy * dt
+    if (r.height <= g.h) {
+      const impact = -r.vy
+      r.height = g.h
+      r.vy = 0
+      return impact > 2500 ? 'land' : null
+    }
+    return null
+  }
+
+  /** Take-off speed that always carries the car clear of the lava pool ahead. */
+  private lavaLaunchSpeed(r: Racer): number {
+    const zSeg = this.z(r) / SEGMENT_LENGTH
+    const zone = this.track.lavas.find((l) => zSeg >= l.rampStart - 2 && zSeg <= l.lavaEnd)
+    if (!zone) return 2500
+    const distance = (zone.lavaEnd + 6 - zSeg) * SEGMENT_LENGTH
+    const t = clamp(distance / Math.max(r.speed, MAX_SPEED * 0.5), 0.6, 1.8)
+    return (GRAVITY * t * t) / 2 / t - r.height / t
+  }
+
+  /** Drove into lava: puff of smoke, then back to the arrows in front of the ramp. */
+  private die() {
+    const p = this.player
+    const zSeg = this.z(p) / SEGMENT_LENGTH
+    this.respawnZone = this.track.lavas.find((l) => zSeg >= l.arrowStart && zSeg < l.lavaEnd + 1) ?? null
+    this.respawnTimer = RESPAWN_TIME
+    this.turboTime = 0
+    p.speed = 0
+    const { x, y, s } = this.exhaust
+    for (let i = 0; i < 28; i++) this.particles.smoke(x, y - s * 0.15, s)
+    audio.puff()
+    setTimeout(() => audio.speak('Hovsa!'), 150)
+  }
+
+  private respawn() {
+    const p = this.player
+    const zone = this.respawnZone
+    if (zone) {
+      p.dist -= this.z(p) - zone.arrowStart * SEGMENT_LENGTH
+      p.offset = zone.x
+    }
+    p.speed = MAX_SPEED * 0.55
+    p.height = 0
+    p.vy = 0
+    p.ramp = null
+    this.respawnTimer = 0
+    this.blink = 1.2
   }
 
   private updateOpponents(dt: number) {
@@ -307,9 +473,21 @@ export class Race {
         }
       }
 
+      // Computer cars always line up for the ramps and steer around holes.
+      let steerRate = 0.6
+      const zSeg = this.z(o) / SEGMENT_LENGTH
+      const lava = this.track.lavas.find((l) => zSeg >= l.arrowStart - 40 && zSeg < l.lavaStart)
+      if (lava) {
+        o.targetOffset = lava.x
+        steerRate = 1.5
+      }
+      const hole = this.track.holes.find((hz) => zSeg >= hz.start - 40 && zSeg < hz.end)
+      if (hole && Math.abs(o.targetOffset - hole.x) < 0.5) o.targetOffset = hole.x > 0 ? hole.x - 0.8 : hole.x + 0.8
+
       if (o.speed < target) o.speed = Math.min(target, o.speed + ACCEL * 0.8 * dt)
-      else o.speed = Math.max(target, o.speed - MAX_SPEED * dt)
-      o.offset += clamp(o.targetOffset - o.offset, -0.6 * dt, 0.6 * dt)
+      else if (o.height <= 0) o.speed = Math.max(target, o.speed - MAX_SPEED * dt)
+      o.offset += clamp(o.targetOffset - o.offset, -steerRate * dt, steerRate * dt)
+      this.vertical(o, false, dt)
       o.dist += o.speed * dt
 
       if (!o.finished && o.dist >= LAPS * L) {
@@ -344,27 +522,38 @@ export class Race {
     ctx.save()
     if (this.shake > 0) ctx.translate((Math.random() - 0.5) * 16 * this.shake, (Math.random() - 0.5) * 16 * this.shake)
 
+    // The camera rises with the car on jumps (and sinks with it into a hole).
+    const lift = this.cave === 'falling' ? p.height * 0.9 : p.height * 0.55
     const view = {
       position: (((this.z(p) - PLAYER_Z) % L) + L) % L,
       playerX: p.offset,
       skyOffset: this.skyOffset,
       hillOffset: this.hillOffset,
+      cameraLift: lift,
+      cave: this.cave === 'in',
+      time: this.time,
     }
-    renderWorld(
-      ctx,
-      w,
-      h,
-      this.track,
-      view,
-      this.opponents.map((o) => ({ z: this.z(o), offset: o.offset, colors: o.colors })),
-    )
+    const cars = this.cave ? [] : this.opponents.map((o) => ({ z: this.z(o), offset: o.offset, height: o.height, colors: o.colors }))
+    renderWorld(ctx, w, h, this.track, view, cars)
 
     const s = playerCarSize(w)
     const speedPct = p.speed / MAX_SPEED
-    const offroad = Math.abs(p.offset) > 1.1
-    const bounce = Math.sin(this.time * 30) * s * 0.006 * speedPct + (offroad && p.speed > 0 ? (Math.random() - 0.5) * s * 0.03 : 0)
-    const carY = playerGroundY(this.track, view, h) - s * 0.18 + bounce
-    drawCar(ctx, w / 2, carY, s, this.steer * 0.08, p.colors)
+    const offroad = !this.cave && p.height <= 0 && Math.abs(p.offset) > 1.1
+    const bounce =
+      p.height > 0 ? 0 : Math.sin(this.time * 30) * s * 0.006 * speedPct + (offroad && p.speed > 0 ? (Math.random() - 0.5) * s * 0.03 : 0)
+    const groundY = playerGroundY(this.track, view, h)
+    const carY = groundY - s * 0.18 - playerScale(h) * p.height + bounce
+    const airborne = p.height > 20 && p.ramp === null
+    if (airborne) {
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'
+      ctx.beginPath()
+      ctx.ellipse(w / 2, groundY, s * 0.5, s * 0.06, 0, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    const hidden = this.respawnTimer > 0 || (this.blink > 0 && Math.floor(this.time * 10) % 2 === 0)
+    // Nose up while climbing, down while falling.
+    const pitch = airborne ? clamp(p.vy / 40000, -0.12, 0.12) : 0
+    if (!hidden) drawCar(ctx, w / 2, carY, s * (1 + pitch), this.steer * 0.08, p.colors, !airborne)
     this.exhaust = { x: w / 2, y: carY + s * 0.1, s }
 
     if (this.turboTime > 0) for (const side of [-1, 1]) drawFlameJet(ctx, w / 2 + side * s * 0.28, carY + s * 0.1, s)
@@ -376,6 +565,13 @@ export class Race {
       drawSpeedLines(ctx, w, h, 0.25)
     }
     ctx.restore()
+
+    if (this.flash.a > 0) {
+      ctx.globalAlpha = this.flash.a
+      ctx.fillStyle = this.flash.color
+      ctx.fillRect(0, 0, w, h)
+      ctx.globalAlpha = 1
+    }
 
     if (this.state === 'grid') return
     this.drawHud(ctx, w, now)

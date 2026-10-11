@@ -29,14 +29,16 @@ export function circle(ctx: Ctx, x: number, y: number, r: number) {
  * Car seen from behind. (x, y) is the middle of the body; the tyres touch the ground at
  * y + 0.18·s, and the exhausts sit at (x ± 0.28·s, y + 0.1·s).
  */
-export function drawCar(ctx: Ctx, x: number, y: number, s: number, lean: number, colors: CarColors) {
+export function drawCar(ctx: Ctx, x: number, y: number, s: number, lean: number, colors: CarColors, shadow = true) {
   ctx.save()
   ctx.translate(x, y)
   ctx.rotate(lean)
-  ctx.fillStyle = 'rgba(0,0,0,0.3)'
-  ctx.beginPath()
-  ctx.ellipse(0, s * 0.17, s * 0.56, s * 0.07, 0, 0, Math.PI * 2)
-  ctx.fill()
+  if (shadow) {
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'
+    ctx.beginPath()
+    ctx.ellipse(0, s * 0.17, s * 0.56, s * 0.07, 0, 0, Math.PI * 2)
+    ctx.fill()
+  }
   ctx.fillStyle = '#1a1a1a'
   roundRect(ctx, -s * 0.52, -s * 0.02, s * 0.2, s * 0.2, s * 0.04)
   roundRect(ctx, s * 0.32, -s * 0.02, s * 0.2, s * 0.2, s * 0.04)

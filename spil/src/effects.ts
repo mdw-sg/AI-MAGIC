@@ -1,7 +1,7 @@
 // Particle effects (turbo flames, grass spray, confetti), lightning and speed lines.
 import type { Ctx } from './ui'
 
-type Kind = 'flame' | 'dirt' | 'confetti'
+type Kind = 'flame' | 'dirt' | 'confetti' | 'smoke'
 type Particle = {
   kind: Kind
   x: number
@@ -50,6 +50,21 @@ export class Particles {
     })
   }
 
+  smoke(x: number, y: number, s: number) {
+    this.list.push({
+      kind: 'smoke',
+      x: x + (Math.random() - 0.5) * s * 0.6,
+      y: y + (Math.random() - 0.5) * s * 0.2,
+      vx: (Math.random() - 0.5) * s * 0.8,
+      vy: -s * (0.3 + Math.random() * 0.6),
+      life: 0,
+      max: 0.7 + Math.random() * 0.4,
+      size: s * (0.12 + Math.random() * 0.12),
+      hue: 0,
+      spin: 0,
+    })
+  }
+
   confetti(w: number) {
     this.list.push({
       kind: 'confetti',
@@ -87,6 +102,11 @@ export class Particles {
         ctx.fillStyle = `hsla(${p.hue + t * 25}, 100%, ${55 + t * 35}%, ${1 - t})`
         ctx.beginPath()
         ctx.arc(p.x, p.y, p.size * (1 - t * 0.4), 0, Math.PI * 2)
+        ctx.fill()
+      } else if (p.kind === 'smoke') {
+        ctx.fillStyle = `rgba(${Math.round(90 + t * 100)}, ${Math.round(85 + t * 100)}, ${Math.round(85 + t * 100)}, ${0.85 * (1 - t)})`
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, p.size * (1 + t * 1.5), 0, Math.PI * 2)
         ctx.fill()
       } else if (p.kind === 'dirt') {
         ctx.fillStyle = p.hue === 100 ? `rgba(60,150,50,${1 - t})` : `rgba(120,80,40,${1 - t})`
